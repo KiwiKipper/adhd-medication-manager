@@ -1,0 +1,1 @@
+This file is copied into each VM by the Vagrant file provisioner.
