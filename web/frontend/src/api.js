@@ -75,8 +75,6 @@ export async function logout() {
   return response.data
 }
 
-/* ---- might not need ---- */
-
 export async function fetchMe() {
   const response = await api.get(
     "/auth/me/",

@@ -3,9 +3,12 @@ import LandingPage from '@/views/LandingPage.vue'
 import Login from '@/views/Login.vue'
 import AboutUs from '@/views/AboutUs.vue'
 import ContactUs from '@/views/ContactUs.vue'
+import Today from '@/views/user/Today.vue'
+import Curve from '@/views/user/Curve.vue'
+import Medications from '@/views/user/Medications.vue'
+import Notes from '@/views/user/Notes.vue'
+import History from '@/views/user/History.vue'
 import { auth, loadUser } from '@/stores/auth.js'
- 
-const SA = ['super_admin']
 
 const router = createRouter({
     history: createWebHistory(),
@@ -15,6 +18,13 @@ const router = createRouter({
         { path: '/about', name: 'about-us', component: AboutUs },
         { path: '/contact', name: 'contact-us', component: ContactUs },
         { path: '/login', name: 'login', component: Login },
+
+        /* ---- user ---- */
+        { path: '/today', name: 'today', component: Today },
+        { path: '/curve', name: 'curve', component: Curve },
+        { path: '/medications', name: 'medications', component: Medications },
+        { path: '/notes', name: 'notes', component: Notes },
+        { path: '/history', name: 'history', component: History },
     ]
 })
  
@@ -24,8 +34,7 @@ router.beforeEach(async (to) => {
     // main.js resolves the session before mount, so this is normally cached.
     const user = auth.user ?? await loadUser()
     if (!user) return '/login'
- 
-    if (to.meta.roles && !to.meta.roles.includes(user.role)) return '/login'
+
     return true
 })
  
