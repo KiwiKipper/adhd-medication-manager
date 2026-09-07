@@ -1,5 +1,7 @@
 1: Create the venv: 
 python -m venv web/backend/venv
+py -3.13 -m venv venv
+
 
 2: Activate it:
 source web/backend/venv/Scripts/activate
