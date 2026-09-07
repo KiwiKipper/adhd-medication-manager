@@ -60,7 +60,8 @@ Vagrant.configure("2") do |config|
       node.vm.hostname = machine[:hostname]
       node.vm.network :private_network, ip: machine[:ip]
       node.vm.network "forwarded_port", guest: 22, host: machine[:ssh_port], id: "ssh"
-      node.vm.provision "shell", path: "provision/#{machine[:hostname]}.sh"
+      node.vm.provision "shell", path: "provisions/common.sh"
+      node.vm.provision "shell", path: "provisions/#{machine[:hostname]}.sh"
 
       node.vm.provider :virtualbox do |vb|
         vb.customize ["modifyvm", :id, "--memory", 1024]
