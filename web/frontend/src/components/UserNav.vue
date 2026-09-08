@@ -10,7 +10,6 @@ const navItems = [
   { label: 'Today', to: '/today' },
   { label: 'Day curve', to: '/curve' },
   { label: 'Medications', to: '/medications' },
-  { label: 'Notes', to: '/notes' },
   { label: 'History', to: '/history' },
 ]
 

@@ -21,6 +21,25 @@ const dose = {
 // reused by other pages later (History, Curve) without copy-pasting it.
 const timeline = TODAY_TIMELINE
 
+const nowLabel = 'NOW · 2:47 pm'
+
+// Splices a `{ now: true }` marker into the timeline at the boundary between
+// "past" and "future" steps, so the template can render it as a single rail
+// with one `v-for` instead of two separate lists stitched together by hand.
+const timelineWithNow = computed(() => {
+  const items = []
+  let inserted = false
+  for (const step of timeline) {
+    if (!inserted && step.state === 'future') {
+      items.push({ now: true, time: nowLabel })
+      inserted = true
+    }
+    items.push(step)
+  }
+  if (!inserted) items.push({ now: true, time: nowLabel })
+  return items
+})
+
 // `ref()` wraps a value so Vue can detect changes to it and re-render the
 // template automatically. `notes.value` is how you read/write it in the
 // <script> block; in the <template> Vue unwraps it for you, so it's just `notes`.
@@ -53,40 +72,52 @@ const statusLabel = (status) => STATUS_LABELS[status] ?? status
   <div class="today-page">
     <!-- Left/center column: today's dose header and the release timeline. -->
     <div class="main-col">
-      <!-- "Taken at 8:00 am ✎ — Concerta 36mg" plus today's date, top right. -->
-      <div class="header-row">
-        <div class="header-left">
-          <span class="taken-time">Taken at {{ dose.takenAt }}</span>
-          <span class="edit-icon" role="button" aria-label="Edit">✎</span>
-          <span class="med-name">— {{ dose.medName }}</span>
-        </div>
-        <span class="today-date">{{ dose.date }}</span>
-      </div>
-
-      <div class="logged-flag">
-        <span class="flag-dot"></span>
-        <span class="flag-text">Logged at {{ dose.loggedAt }} · {{ dose.loggedDelayMin }} min after taking</span>
-      </div>
-
-      <!-- Vertical list of milestones ("Taken", "First peak", ...). `v-for` repeats
-           this block once per item in `timeline`; `:key` gives Vue a stable id per
-           row so it can track/re-order items efficiently instead of re-rendering
-           everything. Each row also draws the dot + connecting line beside it. -->
-      <div class="timeline-col">
-        <div
-          v-for="(step, i) in timeline"
-          :key="step.time"
-          class="timeline-item"
-          :class="step.state"
-        >
-          <div class="timeline-rail">
-            <span class="timeline-dot"></span>
-            <!-- No connecting line after the very last item. -->
-            <span v-if="i < timeline.length - 1" class="timeline-line"></span>
+      <!-- Fixed-width block, centered in the main column via `align-items:
+           center` on .main-col below — with the release-curve chart gone,
+           this keeps the header + timeline from hugging the left edge. -->
+      <div class="content-inner">
+        <!-- "Taken at 8:00 am ✎ — Concerta 36mg" plus today's date, top right. -->
+        <div class="header-row">
+          <div class="header-left">
+            <span class="taken-time">Taken at {{ dose.takenAt }}</span>
+            <span class="edit-icon" role="button" aria-label="Edit">✎</span>
+            <span class="med-name">— {{ dose.medName }}</span>
           </div>
-          <div class="timeline-body">
-            <div class="timeline-time">{{ step.time }}</div>
-            <div class="timeline-label">{{ step.label }}</div>
+          <span class="today-date">{{ dose.date }}</span>
+        </div>
+
+        <div class="logged-flag">
+          <span class="flag-dot"></span>
+          <span class="flag-text">Logged at {{ dose.loggedAt }} · {{ dose.loggedDelayMin }} min after taking</span>
+        </div>
+
+        <!-- Vertical list of milestones ("Taken", "First peak", ...), with a
+             "now" marker spliced in at the past/future boundary (see
+             `timelineWithNow`). `v-for` repeats this block once per item;
+             `:key` gives Vue a stable id per row so it can track/re-order
+             items efficiently instead of re-rendering everything. -->
+        <div class="timeline-col">
+          <div
+            v-for="(step, i) in timelineWithNow"
+            :key="step.time"
+            class="timeline-item"
+            :class="step.now ? 'now' : step.state"
+          >
+            <div class="timeline-rail">
+              <span class="timeline-dot"></span>
+              <!-- No connecting line after the very last item. -->
+              <span v-if="i < timelineWithNow.length - 1" class="timeline-line"></span>
+            </div>
+            <!-- The "now" marker gets a horizontal line + badge instead of a
+                 time/label pair, matching the design's "NOW · 2:47 pm" cue. -->
+            <div v-if="step.now" class="now-row">
+              <span class="now-line"></span>
+              <span class="now-badge">{{ step.time }}</span>
+            </div>
+            <div v-else class="timeline-body">
+              <div class="timeline-time">{{ step.time }}</div>
+              <div class="timeline-label">{{ step.label }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -147,8 +178,17 @@ const statusLabel = (status) => STATUS_LABELS[status] ?? status
   min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
   padding: 32px 40px;
   overflow: hidden;
+}
+
+.content-inner {
+  width: 75%;
+  max-width: 980px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .header-row {
@@ -210,7 +250,6 @@ const statusLabel = (status) => STATUS_LABELS[status] ?? status
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  max-width: 520px;
   overflow-y: auto;
 }
 
@@ -221,10 +260,13 @@ const statusLabel = (status) => STATUS_LABELS[status] ?? status
 
 .timeline-rail {
   flex: none;
-  width: 10px;
+  /* Wide enough for the biggest dot (the "now" marker's 14px ring) so it
+     never gets clipped against the rail's edge. */
+  width: 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow: visible;
 }
 
 .timeline-dot {
@@ -241,6 +283,14 @@ const statusLabel = (status) => STATUS_LABELS[status] ?? status
   height: 7px;
 }
 
+/* The "now" marker's dot is bigger and hollow, echoing the design's ring. */
+.timeline-item.now .timeline-dot {
+  background: var(--bg);
+  border: 2px solid var(--fg);
+  width: 14px;
+  height: 14px;
+}
+
 .timeline-line {
   flex: 1;
   width: 2px;
@@ -249,7 +299,31 @@ const statusLabel = (status) => STATUS_LABELS[status] ?? status
 }
 
 .timeline-body {
-  padding-bottom: 20px;
+  padding-bottom: 24px;
+}
+
+.now-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.now-line {
+  flex: 1;
+  height: 2px;
+  background: var(--fg);
+}
+
+.now-badge {
+  flex: none;
+  background: var(--fg);
+  color: var(--bg);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font: 600 11.5px ui-monospace, Menlo, monospace;
+  white-space: nowrap;
 }
 
 .timeline-time {
