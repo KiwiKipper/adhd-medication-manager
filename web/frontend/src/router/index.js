@@ -1,8 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import LandingPage from '@/views/LandingPage.vue'
 import Login from '@/views/Login.vue'
-import AboutUs from '@/views/AboutUs.vue'
-import ContactUs from '@/views/ContactUs.vue'
 import Today from '@/views/user/Today.vue'
 import Curve from '@/views/user/Curve.vue'
 import Medications from '@/views/user/Medications.vue'
@@ -14,9 +11,7 @@ const router = createRouter({
     history: createWebHistory(),
     routes: [
         /* ---- public ---- */
-        { path: '/', name: 'home', component: LandingPage },
-        { path: '/about', name: 'about-us', component: AboutUs },
-        { path: '/contact', name: 'contact-us', component: ContactUs },
+        { path: '/', redirect: '/login' },
         { path: '/login', name: 'login', component: Login },
 
         /* ---- user ---- */

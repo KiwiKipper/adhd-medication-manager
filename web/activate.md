@@ -14,3 +14,13 @@ pip install -r web\backend\requirements.txt
 
 
 
+Activate Vue
+
+1. One off
+npm install
+
+2. Run server
+npm run dev
+
+
+
