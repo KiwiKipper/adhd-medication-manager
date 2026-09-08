@@ -9,14 +9,14 @@ import {
   fetchCsrfCookie
 } from '@/api.js'
 import { loadUser } from '@/stores/auth.js'
- 
+
 const router = useRouter()
- 
-const username = ref('')
+
+const email = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
- 
+
 onMounted(async () => {
   try {
     await withRetry(MAX_ATTEMPTS, fetchCsrfCookie)
@@ -25,20 +25,20 @@ onMounted(async () => {
     error.value = 'Unable to connect to server. Try logging in later.'
   }
 })
- 
+
 async function handleSubmit() {
   loading.value = true
   error.value = ''
- 
+
   try {
-    await login(username.value, password.value)
+    await login(email.value, password.value)
     await loadUser()
-    router.push('/user/today')
+    router.push('/today')
   } catch (err) {
     if (err.code === TIMEOUT_ERROR) {
       error.value = 'The server took too long to respond.'
     } else if (err.response?.status === 401) {
-      error.value = 'Incorrect username or password.'
+      error.value = 'Incorrect username/email or password.'
     } else if (err.response?.status === 403) {
       error.value = 'Request was rejected. Please refresh and try again.'
     } else {
@@ -49,157 +49,185 @@ async function handleSubmit() {
   }
 }
 </script>
- 
+
 <template>
-  <div class="public-page login-page">
-    <div class="login-wrap">
- 
-      <div class="login-head">
-        <h1>Taurite Tū</h1>
-        <p>Sign in to your account</p>
-      </div>
- 
-      <div class="login-card">
-        <form @submit.prevent="handleSubmit">
- 
+  <div class="login-page">
+    <div class="login-left">
+      <div class="login-wordmark">Dose</div>
+      <p class="login-tagline">A personal medication log. Quiet, plain, yours.</p>
+    </div>
+
+    <div class="login-right">
+      <div class="login-form-wrap">
+        <form class="login-form" @submit.prevent="handleSubmit">
           <div class="field">
-            <label for="username">Username</label>
-            <div class="input-wrap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="8" r="4"></circle>
-                <path d="M4 21a8 8 0 0 1 16 0"></path>
-              </svg>
-              <input
-                id="username"
-                v-model="username"
-                type="text"
-                placeholder="Enter your username"
-                autocomplete="username"
-                required
-              />
-            </div>
+            <label for="email">Username or email</label>
+            <input
+              id="email"
+              v-model="email"
+              type="text"
+              placeholder="you@example.com"
+              autocomplete="username"
+              required
+            />
           </div>
- 
+
           <div class="field">
             <label for="password">Password</label>
-            <div class="input-wrap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="11" width="18" height="11" rx="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              </svg>
-              <input
-                id="password"
-                v-model="password"
-                type="password"
-                placeholder="Enter your password"
-                autocomplete="current-password"
-                required
-              />
-            </div>
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            />
           </div>
- 
-          <div class="forgot-row">
-            <a href="#" @click.prevent>Forgot password?</a>
-          </div>
- 
+
           <p v-if="error" class="error-msg" role="alert">{{ error }}</p>
- 
+
           <button type="submit" class="submit-btn" :disabled="loading">
             {{ loading ? 'Signing in…' : 'Sign in' }}
-            <svg v-if="!loading" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M5 12h14"></path>
-              <path d="m12 5 7 7-7 7"></path>
-            </svg>
           </button>
- 
         </form>
+
+        <div class="disclaimer">
+          <span class="disclaimer-icon">i</span>
+          <p>
+            Dose is a personal log, not medical advice. It shows a generic published
+            release curve for your medication — never a prediction about your body,
+            and never a suggestion to take another dose.
+          </p>
+        </div>
       </div>
- 
     </div>
   </div>
 </template>
- 
+
 <style scoped>
 .login-page {
   display: flex;
-  align-items: center;
+  min-height: 100vh;
+}
+
+.login-left {
+  flex: 1;
+  background: var(--accent-soft);
+  display: flex;
+  flex-direction: column;
   justify-content: center;
-  padding: 40px 16px 64px;
+  padding: 80px;
 }
- 
-.login-wrap {
+
+.login-wordmark {
+  font: 700 44px/1.15 'Inter', sans-serif;
+  color: var(--fg);
+}
+
+.login-tagline {
+  font: 400 18px/1.5 'Inter', sans-serif;
+  color: var(--fg-muted);
+  margin: 10px 0 0;
+  max-width: 380px;
+}
+
+.login-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 60px;
+}
+
+.login-form-wrap {
   width: 100%;
-  max-width: 440px;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
 }
- 
-.login-head { text-align: center; margin-bottom: 24px; }
-.login-head h1 { font-size: 36px; margin-bottom: 6px; }
-.login-head p { font-size: 15px; color: var(--text-muted); margin: 0; }
- 
-.login-card {
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font: 500 12px/1 'Inter', sans-serif;
+  color: var(--fg-muted);
+}
+
+.field input {
   background: var(--surface);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-panel);
-  padding: 32px 28px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  color: var(--fg);
+  outline: none;
 }
- 
-form { display: flex; flex-direction: column; gap: 18px; }
- 
-.input-wrap { position: relative; display: flex; align-items: center; }
-.input-wrap svg {
-  position: absolute;
-  left: 13px;
-  width: 17px;
-  height: 17px;
-  color: var(--text-muted);
-  pointer-events: none;
+
+.field input:focus {
+  border-color: var(--accent);
 }
-/* .field input in public.css sets `padding: 12px 14px`, which has the same
-   specificity as `.input-wrap input` and so can win on source order and put
-   the text back under the icon. The extra class settles it. */
-.field .input-wrap input {
-  width: 100%;
-  height: 46px;
-  padding: 12px 14px 12px 40px;
-}
- 
-.forgot-row { text-align: right; margin-top: -6px; }
-.forgot-row a { color: var(--text-muted); font-size: var(--text-base); }
- 
+
 .error-msg {
   margin: 0;
   padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--danger-bg);
-  color: var(--danger);
-  font-size: var(--text-base);
+  border-radius: 9px;
+  background: var(--flag-soft);
+  color: var(--flag);
+  font: 500 13px/1.4 'Inter', sans-serif;
 }
- 
+
 .submit-btn {
-  width: 100%;
-  height: 46px;
- 
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
- 
+  background: var(--accent);
+  color: var(--accent-contrast);
   border: none;
-  border-radius: var(--radius);
-  background: var(--maroon);
-  color: var(--text-on-ink);
- 
-  font-size: 15px;
-  font-weight: 600;
+  border-radius: 10px;
+  padding: 14px;
+  font: 600 15px 'Inter', sans-serif;
+  cursor: pointer;
 }
-.submit-btn:hover:not(:disabled) { background: var(--maroon-dark); }
-.submit-btn svg { width: 17px; height: 17px; }
- 
-@media (max-width: 430px) {
-  .login-head h1 { font-size: 30px; }
-  .login-card { padding: 24px 20px; }
+
+.submit-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
+
+.disclaimer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+}
+
+.disclaimer-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fg-muted);
+  color: var(--fg-muted);
+  font: 600 11px/18px 'Inter', sans-serif;
+  text-align: center;
+}
+
+.disclaimer p {
+  margin: 0;
+  font: 400 13px/1.55 'Inter', sans-serif;
+  color: var(--fg);
+}
+
 </style>

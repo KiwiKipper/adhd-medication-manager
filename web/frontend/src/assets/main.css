@@ -1,0 +1,40 @@
+/* Design tokens from the Dose design spec (Dose Desktop.dc.html), light theme only. */
+:root {
+  --bg: oklch(97% 0.004 80);
+  --surface: oklch(99% 0.003 80);
+  --fg: oklch(22% 0.01 80);
+  --fg-muted: oklch(45% 0.01 80);
+  --border: oklch(88% 0.006 80);
+  --accent: oklch(52% 0.1 220);
+  --accent-soft: oklch(93% 0.03 220);
+  --accent-contrast: oklch(99% 0 0);
+  --flag: oklch(52% 0.13 45);
+  --flag-soft: oklch(93% 0.05 50);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+input,
+button {
+  font-family: 'Inter', system-ui, sans-serif;
+}

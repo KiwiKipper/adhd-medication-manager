@@ -1,0 +1,92 @@
+:root {
+  --bg: oklch(97% 0.004 80);
+  --surface: oklch(99% 0.003 80);
+  --fg: oklch(22% 0.01 80);
+  --fg-muted: oklch(45% 0.01 80);
+  --border: oklch(88% 0.006 80);
+  --accent: oklch(52% 0.1 220);
+  --accent-soft: oklch(93% 0.03 220);
+  --accent-contrast: oklch(99% 0 0);
+  --flag: oklch(52% 0.13 45);
+  --flag-soft: oklch(93% 0.05 50);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--accent); }
+
+input, button {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  color: var(--fg);
+  outline: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.card {
+  background: var(--bg);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+
+.surface-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.pill-ontime { background: var(--accent-soft); color: var(--accent); }
+.pill-flagged { background: var(--flag-soft); color: var(--flag); }
+
+.mono { font-family: ui-monospace, Menlo, monospace; }
+
+.flag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--flag);
+  display: inline-block;
+}
+
+/* Timeline markers */
+.timeline-dot-past { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.timeline-dot-future { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); background: var(--bg); }
+.timeline-line { flex: 1; width: 2px; background: var(--border); }
+.timeline-now-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg); }
+.timeline-now-line { flex: 1; height: 1px; background: var(--fg); }
