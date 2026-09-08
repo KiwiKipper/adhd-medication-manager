@@ -19,7 +19,6 @@ import { auth } from './stores/auth.js'
 }
 
 .app-main.with-sidebar {
-  margin-left: var(--sidebar-width, 240px);
-  padding: 32px;
+  margin-left: var(--sidebar-width, 236px);
 }
 </style>

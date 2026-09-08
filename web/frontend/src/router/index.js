@@ -15,11 +15,11 @@ const router = createRouter({
         { path: '/login', name: 'login', component: Login },
 
         /* ---- user ---- */
-        { path: '/today', name: 'today', component: Today },
-        { path: '/curve', name: 'curve', component: Curve },
-        { path: '/medications', name: 'medications', component: Medications },
-        { path: '/notes', name: 'notes', component: Notes },
-        { path: '/history', name: 'history', component: History },
+        { path: '/today', name: 'today', component: Today, meta: { requiresAuth: true } },
+        { path: '/curve', name: 'curve', component: Curve, meta: { requiresAuth: true } },
+        { path: '/medications', name: 'medications', component: Medications, meta: { requiresAuth: true } },
+        { path: '/notes', name: 'notes', component: Notes, meta: { requiresAuth: true } },
+        { path: '/history', name: 'history', component: History, meta: { requiresAuth: true } },
     ]
 })
  

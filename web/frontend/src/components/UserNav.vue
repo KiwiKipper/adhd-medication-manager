@@ -8,7 +8,7 @@ const router = useRouter()
 
 const navItems = [
   { label: 'Today', to: '/today' },
-  { label: 'Curve', to: '/curve' },
+  { label: 'Day curve', to: '/curve' },
   { label: 'Medications', to: '/medications' },
   { label: 'Notes', to: '/notes' },
   { label: 'History', to: '/history' },
@@ -43,8 +43,14 @@ async function handleLogout() {
     </nav>
 
     <div class="sidebar-footer">
-      <span class="nav-user">{{ userName }}</span>
-      <button class="nav-btn" @click="handleLogout">Log out</button>
+      <div class="disclaimer">
+        <span class="disclaimer-icon">i</span>
+        <span class="disclaimer-text">Not medical advice. Generic published curves, not a measurement of you.</span>
+      </div>
+      <div class="sidebar-user">
+        <span class="nav-user">{{ userName }}</span>
+        <button class="nav-btn" @click="handleLogout">Log out</button>
+      </div>
     </div>
   </aside>
 </template>
@@ -54,81 +60,109 @@ async function handleLogout() {
   position: fixed;
   inset-block: 0;
   left: 0;
-  width: var(--sidebar-width, 240px);
+  width: var(--sidebar-width, 236px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: 24px 16px;
-  background: var(--surface, #ffffff);
-  border-right: 1px solid var(--border, #e5e7eb);
+  padding: 28px 20px;
+  gap: 28px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 
 .sidebar-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-h, #08060d);
+  font: 700 20px 'Inter', sans-serif;
+  color: var(--fg);
   padding: 0 8px;
-  margin-bottom: 28px;
 }
 
 .sidebar-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1;
 }
 
 .nav-link {
   display: block;
-  padding: 10px 12px;
-  border-radius: var(--radius, 8px);
-  color: var(--text-muted, #6b7280);
+  padding: 10px 14px;
+  border-radius: 9px;
+  color: var(--fg-muted);
   text-decoration: none;
-  font-size: 15px;
+  font: 500 14px 'Inter', sans-serif;
   transition: background 0.15s, color 0.15s;
 }
 
 .nav-link:hover {
-  background: var(--code-bg, #f4f3ec);
-  color: var(--text-h, #08060d);
+  color: var(--fg);
 }
 
 .nav-link.router-link-active {
-  background: var(--accent-bg, rgba(122, 31, 61, 0.1));
-  color: var(--maroon, #7a1f3d);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 600;
 }
 
 .sidebar-footer {
-  border-top: 1px solid var(--border, #e5e7eb);
-  padding-top: 16px;
-  margin-top: 16px;
+  margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+.disclaimer {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 13px;
+}
+
+.disclaimer-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fg-muted);
+  color: var(--fg-muted);
+  font: 600 10px/16px 'Inter', sans-serif;
+  text-align: center;
+}
+
+.disclaimer-text {
+  font: 400 11.5px/1.5 'Inter', sans-serif;
+  color: var(--fg-muted);
+}
+
+.sidebar-user {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px;
 }
 
 .nav-user {
-  padding: 0 8px;
-  font-size: 13px;
-  color: var(--text-muted, #6b7280);
+  font: 400 13px 'Inter', sans-serif;
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .nav-btn {
-  border: 1px solid var(--border, #e5e7eb);
+  align-self: flex-start;
+  border: 1px solid var(--border);
   background: transparent;
-  color: var(--text-h, #08060d);
-  padding: 8px 12px;
-  border-radius: var(--radius, 8px);
+  color: var(--fg);
+  padding: 6px 12px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font: 500 13px 'Inter', sans-serif;
 }
 
 .nav-btn:hover {
-  background: var(--code-bg, #f4f3ec);
+  background: var(--surface);
 }
 </style>
