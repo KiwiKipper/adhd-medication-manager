@@ -40,7 +40,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'users',
-    'tracker',
+    'tracker'
 ]
 
 # Send credentials with request
