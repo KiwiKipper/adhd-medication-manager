@@ -81,3 +81,27 @@ export async function fetchMe() {
   )
   return response.data
 }
+
+// ---------------------------------------------------------------------------
+// Future helpers for Medications.vue and History.vue
+// ---------------------------------------------------------------------------
+// Both views currently render placeholder data from lib/placeholderData.js.
+// Once the medication/dose-log backend endpoints exist, replace those
+// placeholder imports with calls like the ones sketched below (following the
+// same async/response.data pattern as fetchMe() above).
+
+// Fetch the list of medications available to the current user, replacing
+// MED_DATA from lib/placeholderData.js.
+// export async function fetchMedications() {
+//   const response = await api.get("/medications/")
+//   return response.data
+// }
+
+// Fetch the dose-log history (date, dose time, on-time/late/edited/missed
+// status, and which medication was taken) for the current user, replacing
+// HISTORY_SEED from lib/placeholderData.js. Consider accepting a date range
+// or limit once History.vue needs more than "the last two weeks".
+// export async function fetchDoseHistory() {
+//   const response = await api.get("/doses/history/")
+//   return response.data
+// }
