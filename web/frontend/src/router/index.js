@@ -22,8 +22,14 @@ const router = createRouter({
 })
  
 router.beforeEach(async (to) => {
+    // Bounce an already-authenticated user straight past the login page.
+    if (to.name === 'login') {
+        const user = auth.user ?? await loadUser()
+        return user ? '/today' : true
+    }
+
     if (!to.meta.requiresAuth) return true
- 
+
     // main.js resolves the session before mount, so this is normally cached.
     const user = auth.user ?? await loadUser()
     if (!user) return '/login'
