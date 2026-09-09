@@ -56,6 +56,7 @@ export async function fetchCsrfCookie() {
   await api.get("/auth/csrf/")
 }
  
+// Authenticate with the given credentials and start a session
 export async function login(username, password) {
   const response = await api.post(
     "/auth/login/",
@@ -68,6 +69,7 @@ export async function login(username, password) {
  
 }
  
+// End the current session
 export async function logout() {
   const response = await api.post(
     "/auth/logout/"
@@ -75,6 +77,7 @@ export async function logout() {
   return response.data
 }
 
+// Fetch the signed-in user's profile
 export async function fetchMe() {
   const response = await api.get(
     "/auth/me/",
@@ -82,26 +85,70 @@ export async function fetchMe() {
   return response.data
 }
 
-// ---------------------------------------------------------------------------
-// Future helpers for Medications.vue and History.vue
-// ---------------------------------------------------------------------------
-// Both views currently render placeholder data from lib/placeholderData.js.
-// Once the medication/dose-log backend endpoints exist, replace those
-// placeholder imports with calls like the ones sketched below (following the
-// same async/response.data pattern as fetchMe() above).
+// Fetch the read-only medication catalogue (seeded by the backend)
+export async function fetchMedications() {
+  const response = await api.get("/api/medications/")
+  return response.data
+}
 
-// Fetch the list of medications available to the current user, replacing
-// MED_DATA from lib/placeholderData.js.
-// export async function fetchMedications() {
-//   const response = await api.get("/medications/")
-//   return response.data
-// }
+// Fetch the current user's actively-selected medication, or { medication: null } if none is set
+export async function fetchMyMedication() {
+  const response = await api.get("/api/my-medication/")
+  return response.data
+}
 
-// Fetch the dose-log history (date, dose time, on-time/late/edited/missed
-// status, and which medication was taken) for the current user, replacing
-// HISTORY_SEED from lib/placeholderData.js. Consider accepting a date range
-// or limit once History.vue needs more than "the last two weeks".
-// export async function fetchDoseHistory() {
-//   const response = await api.get("/doses/history/")
-//   return response.data
-// }
+// Set the current user's active medication to the given catalogue id (e.g. "concerta")
+export async function selectMedication(medicationId) {
+  const response = await api.post("/api/my-medication/", { medication: medicationId })
+  return response.data
+}
+
+// Log a dose taken at the given ISO timestamp; logging again the same day edits that day's dose
+export async function logDose(takenAt) {
+  const response = await api.post("/api/doses/", { taken_at: takenAt })
+  return response.data
+}
+
+// Fetch the current user's dose log. Pass "today" for just today's dose, or omit for the last 14 days
+export async function fetchDoses(date) {
+  const response = await api.get("/api/doses/", { params: date ? { date } : undefined })
+  return response.data
+}
+
+// Fetch the current user's notes, newest first
+export async function fetchNotes() {
+  const response = await api.get("/api/notes/")
+  return response.data
+}
+
+// Create a new note for the current user
+export async function addNote(text) {
+  const response = await api.post("/api/notes/", { text })
+  return response.data
+}
+
+/*
+---------------------------------------------------------------------------
+Future helpers for Medications.vue and History.vue
+---------------------------------------------------------------------------
+Both views currently render placeholder data from lib/placeholderData.js.
+Once the medication/dose-log backend endpoints exist, replace those
+placeholder imports with calls like the ones sketched below (following the
+same async/response.data pattern as fetchMe() above).
+
+Fetch the list of medications available to the current user, replacing
+MED_DATA from lib/placeholderData.js.
+export async function fetchMedications() {
+  const response = await api.get("/medications/")
+  return response.data
+}
+
+Fetch the dose-log history (date, dose time, on-time/late/edited/missed
+status, and which medication was taken) for the current user, replacing
+HISTORY_SEED from lib/placeholderData.js. Consider accepting a date range
+or limit once History.vue needs more than "the last two weeks".
+export async function fetchDoseHistory() {
+  const response = await api.get("/doses/history/")
+  return response.data
+}
+*/
