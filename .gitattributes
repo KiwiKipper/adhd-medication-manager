@@ -7,3 +7,11 @@
 #
 # Forcing LF keeps `vagrant up` working from a fresh clone on any platform.
 *.sh text eol=lf
+
+# Same reasoning for everything under a deploy/ directory: systemd units,
+# the nginx site and the environment file are all read on the Linux guest.
+# CRLF here fails quietly rather than loudly -- systemd would carry the 
+# into the value, so DB_PASSWORD becomes "password" and postgres just
+# reports a wrong password.
+pk/deploy/** text eol=lf
+web/deploy/** text eol=lf

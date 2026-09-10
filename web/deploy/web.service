@@ -1,0 +1,22 @@
+[Unit]
+Description=web service -- Django API (ADHD medication manager)
+# The API is useless without the database, but db is a different VM that
+# systemd cannot order against, so provisions/web.sh waits for postgres
+# before it starts this unit.
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/vagrant/web/backend
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+EnvironmentFile=/etc/web.env
+# Bound to loopback on purpose: nginx is the only thing that should talk to
+# gunicorn, and it is what serves the SPA and terminates :8000. 8080 rather
+# than 8001 only to avoid reading like the pk service, which is a different
+# VM entirely.
+ExecStart=/opt/web/venv/bin/gunicorn config.wsgi --bind 127.0.0.1:8080 --workers 3
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

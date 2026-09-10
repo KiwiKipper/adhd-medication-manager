@@ -4,6 +4,13 @@ Remaining work to get the project to a submittable v1. Ordered backend →
 frontend → data correctness → infrastructure. Items marked *post-v1* are
 tracked in [web/features.md](web/features.md) and are not blockers.
 
+Last verified against `main` at 0094bfd (PRs #1 docs/v1-todo, #2
+backend/v1-config-and-tests, #3 infra/db-provisioning all merged), plus the
+web-provisioning branch below. Backend and infrastructure are essentially
+done — `vagrant up` now brings all three nodes up serving the app. The whole
+frontend and all of data correctness are still open, and those are the real
+remaining v1 work.
+
 ## 1. Backend
 
 - [x] **Switch to PostgreSQL.** `settings.py` now defaults to the postgres
@@ -77,35 +84,77 @@ tracked in [web/features.md](web/features.md) and are not blockers.
       or a milestone time is shown.
 - [ ] **Verify timezone handling end to end.** `provisions/common.sh` sets the
       VMs to `Pacific/Auckland` precisely because a UTC default silently
-      shifts every timeline by 12-13 hours — confirm Django's `TIME_ZONE`,
-      `USE_TZ`, and the frontend's local-time formatting all agree.
+      shifts every timeline by 12-13 hours. Django's half is confirmed —
+      [settings.py:191-195](web/backend/config/settings.py#L191-L195) has
+      `TIME_ZONE = 'Pacific/Auckland'` with `USE_TZ = True`. Still to check:
+      the frontend's local-time formatting and pk's day boundaries agree with
+      it once a VM is actually running.
 
 ## 4. Infrastructure
 
-- [ ] **Write `provisions/web.sh`.** Currently just `#!/bin/bash` / `set -e`
-      — it does nothing. Needs: venv + `pip install -r web/requirements.txt`,
-      `manage.py migrate`, `collectstatic`, a gunicorn systemd unit, and the
-      Vue build (or `npm run dev --host`). Model it on
-      [provisions/pk.sh](provisions/pk.sh), which is the one node that is
-      fully provisioned (idempotent, systemd unit, post-provision health check).
-- [ ] **Fix the missing DB schema file.**
-      [provisions/db.sh:8](provisions/db.sh#L8) runs
-      `psql adhd -f /vagrant/db/schema.sql`, but there is no `db/` directory in
-      the repo — `vagrant up` fails on the db VM. Either add `db/schema.sql` or
-      drop that line and let Django migrations own the schema (preferred, since
-      the models already define it).
-- [ ] **Forward the app ports.** [Vagrantfile](Vagrantfile) only forwards SSH
-      (2200-2202). Nothing exposes Django (8000) or Vite (5173) to the host, so
-      the app can't be opened from a browser.
-- [ ] **Remove the dead config block.** The whole first
-      `Vagrant.configure("2")` block at the top of the Vagrantfile is commented
-      out and superseded by the `servers=[...]` version below it.
+- [x] **Write `provisions/web.sh`.** Done — gunicorn running the Django API
+      behind nginx, with nginx also serving the built Vue SPA so both answer
+      on one origin (`:8000`). The script installs Node 22 from NodeSource
+      (vite 8 needs >= 20.19), builds the venv, waits for postgres on the db
+      VM, runs `migrate` and `collectstatic`, builds the frontend, installs
+      both units, and health-checks `/auth/csrf/` and `/` before exiting.
+      Config lives in [web/deploy/](web/deploy/); every step is rerunnable.
+- [x] **Decide the web VM's Python.** Done — web moves to
+      `bento/ubuntu-24.04` (Python 3.12) for Django 6.1. db and pk stay on
+      18.04: pk pins Django 3.2 precisely because that box ships Python 3.6,
+      and moving it would mean upgrading pk's Django for no benefit.
+- [x] **Check `apt-get update` still works on bionic.** Checked on the
+      running db VM — bionic is still served from `archive.ubuntu.com` and
+      all four suites resolve, so the EOL worry was unfounded and
+      `provisions/common.sh` needs no mirror rewrite. Worth rechecking if a
+      provision ever fails at the apt step.
+- [x] **Fix the missing DB schema file.** Done — the `schema.sql` line is
+      gone from [provisions/db.sh](provisions/db.sh) and Django migrations own
+      the schema. The script now also creates the role/database/pg_hba rule
+      only if absent (so `vagrant provision` is rerunnable rather than a
+      second-run failure), opens `listen_addresses`, and ends with a real
+      health check that connects over `192.168.56.10` as `adhd` before
+      exiting green.
+- [x] **Forward the app ports.** Done — guest 8000 to host 8000 on web (the
+      browser entry point), and guest 8001 to host 8001 on pk for debugging.
+      The web mapping has to keep host port 8000 specifically, because
+      [api.js:6](web/frontend/src/api.js#L6) hardcodes
+      `http://localhost:8000`; `auto_correct` is on, so watch for a
+      correction warning if something else on the host holds that port.
+      Note none of this affects reaching db or pk from the host — the
+      `192.168.56.0/24` private network is a VirtualBox host-only adapter, so
+      the host sits on it as `192.168.56.1` and can hit postgres and pk
+      directly with no forwarding. That is what makes the interim setup
+      below work.
+- [x] **Remove the dead config block.** Done — it was also actively
+      misleading, since it had db and web on each other's addresses.
 - [ ] **Write the root README.** [README.md](README.md) is empty (0 bytes). It
       needs the architecture (web/pk/db VMs), setup and `vagrant up`
       instructions, and how to run each test suite — this is what a marker
       reads first.
-- [ ] **Add `.ua/` to `.gitignore`** (or delete it) — it is scratch output from
-      the codebase-analysis tooling and currently shows as untracked.
+- [x] **Add `.ua/` to `.gitignore`** (or delete it). Done — the directory is
+      gone from the working tree and `git status` is clean.
 - [ ] **Verify a clean `vagrant destroy && vagrant up`** brings all three VMs up
-      green, end to end, on a fresh checkout.
+      green, end to end, on a fresh checkout. Green is not currently proof of
+      much: web provisions to a no-op, so check the services, not the exit
+      code.
+- [ ] **Document the interim host-side dev setup** (in the README, once
+      written). Until web.sh exists, `vagrant up` gives working db and pk VMs
+      and the web tier runs on the host against them — which also sidesteps
+      the Python 3.6 problem entirely. The defaults already point the right
+      way (`DB_HOST=192.168.56.10`, `PK_SERVICE_URL=http://192.168.56.11:8001`,
+      `http://localhost:5173` in `CORS_ALLOWED_ORIGINS`). The one thing that
+      is not defaulted is `DB_PASSWORD` — it defaults to empty, while
+      [provisions/db.sh](provisions/db.sh) sets it to `password`. So from
+      `web/backend/`: set `DB_PASSWORD`, run `manage.py migrate` (the VM's
+      database is empty — this is also what runs the medication seed
+      migrations), then `runserver`; and `npm run dev` in `web/frontend/`.
+- [ ] **Delete the stray `ig` file.** There is a tracked file named `ig` at
+      the repo root containing what looks like an aborted `.gitignore`
+      (`.venv/`, `__pycache__/`, `node_modules/`, `dist/`). Its useful lines
+      are already in [.gitignore](.gitignore); delete it.
+- [ ] **Stop tracking `web/backend/db.sqlite3`.** A committed dev database
+      ships whatever local rows were in it and conflicts on every merge. Add
+      it to [.gitignore](.gitignore) and `git rm --cached` it — the postgres
+      switch means nothing depends on the file.
 - [ ] **Write the report.** Step 11 of [web/steps.md](web/steps.md).

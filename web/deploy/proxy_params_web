@@ -1,0 +1,11 @@
+# Shared proxy headers for every location that reaches gunicorn.
+#
+# $host (not $http_host) is deliberate: it drops the port, which is what
+# Django's ALLOWED_HOSTS compares against. With the port attached, a request
+# through the forwarded host port would arrive as `localhost:8000` and be
+# rejected as a disallowed host.
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_redirect off;
