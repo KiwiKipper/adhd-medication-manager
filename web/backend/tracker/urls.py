@@ -6,4 +6,6 @@ urlpatterns = [
     path("my-medication/", views.my_medication_view),
     path("doses/", views.doses_view),
     path("notes/", views.notes_view),
+    path("timeline/", views.timeline_view),
+    path("adherence/", views.adherence_view),
 ]

@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from .models import Dose, Medication, Note, UserMedication
 from .serializers import DoseSerializer, MedicationSerializer, NoteSerializer
+from .services import PkServiceError, call_pk_adherence, call_pk_timeline
 
 
 @api_view(["GET"])
@@ -75,6 +76,92 @@ def doses_view(request) -> Response:
     else:
         doses = doses.filter(date__gte=timezone.localdate() - timezone.timedelta(days=13))
     return Response(DoseSerializer(doses, many=True).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def timeline_view(request) -> Response:
+    """The release-curve timeline for one dose, computed by pk.
+
+    Defaults to today's logged dose; pass ?taken_at=<ISO-8601 with offset> to
+    ask about a different moment. web only gathers the medication's curve
+    parameters and today's taken_at from the database -- pk does the maths.
+    """
+    active = UserMedication.objects.filter(user=request.user, is_active=True).first()
+    if active is None:
+        return Response(
+            {"error": "No active medication selected."}, status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    taken_at = request.query_params.get("taken_at")
+    if not taken_at:
+        dose = Dose.objects.filter(user=request.user, date=timezone.localdate()).first()
+        if dose is None or dose.taken_at is None:
+            return Response(
+                {"error": "No dose logged for today yet."}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        taken_at = dose.taken_at.isoformat()
+
+    if not active.medication.pk_components:
+        return Response(
+            {"error": f"{active.medication.name} has no release-curve parameters configured yet."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        result = call_pk_timeline(taken_at, active.medication.pk_components)
+    except PkServiceError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+
+    return Response(result)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def adherence_view(request) -> Response:
+    """Adherence stats over the last `days` days (default 14), computed by
+    pk. web only gathers each day's scheduled/taken time from the database
+    -- classifying a day as on_time/late/missed is pk's job, not web's."""
+    active = UserMedication.objects.filter(user=request.user, is_active=True).first()
+    if active is None:
+        return Response(
+            {"error": "No active medication selected."}, status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        days = int(request.query_params.get("days", 14))
+    except (TypeError, ValueError):
+        return Response({"error": "days must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+    days = max(1, days)
+
+    today = timezone.localdate()
+    scheduled = active.scheduled_time.strftime("%H:%M")
+
+    window_start = today - timezone.timedelta(days=days - 1)
+    doses_by_date = {
+        dose.date: dose
+        for dose in Dose.objects.filter(user=request.user, date__gte=window_start)
+    }
+
+    # The database only has rows for days a dose was actually logged; any
+    # day in the window with no row is a missed dose, so it is synthesized
+    # here rather than left out of pk's picture entirely.
+    payload_doses = []
+    for offset in range(days):
+        date = today - timezone.timedelta(days=offset)
+        dose = doses_by_date.get(date)
+        taken_at = (
+            timezone.localtime(dose.taken_at).strftime("%H:%M")
+            if dose and dose.taken_at else None
+        )
+        payload_doses.append({"date": date.isoformat(), "scheduled": scheduled, "taken_at": taken_at})
+
+    try:
+        result = call_pk_adherence(payload_doses)
+    except PkServiceError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+
+    return Response(result)
 
 
 @api_view(["GET", "POST"])

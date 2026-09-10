@@ -1,36 +1,62 @@
 <script setup>
-// <script setup> is Vue 3 shorthand: anything declared at the top level here
-// (variables, functions, imports) is automatically available to the <template>
-// below, with no separate "export default { data(){...} }" boilerplate needed.
-import { computed } from 'vue'
-import { HISTORY_SEED, STATUS_LABELS } from '@/lib/placeholderData.js'
+// Adherence classification (on_time/late/missed), the streak and the
+// adherence percentage are all computed by the pk service -- see
+// fetchAdherence() in api.js -- not here. This view only merges that
+// classification with each day's actual dose time (from fetchDoses(), which
+// pk never sees) and renders it.
+import { ref, onMounted } from 'vue'
+import { fetchAdherence, fetchDoses } from '@/api.js'
+import { statusLabel, formatDateLabel, dowLabel } from '@/lib/doseHistory.js'
+import { formatClockTime } from '@/lib/timeline.js'
 
-// Small helper so the template can show "On time" instead of the raw
-// "on-time" status string stored in the data.
-const statusLabel = (status) => STATUS_LABELS[status] ?? status
+const HISTORY_DAYS = 14
 
-// Stats panel figures, all derived from HISTORY_SEED rather than hardcoded,
-// so they stay correct if the placeholder data changes.
-// HISTORY_SEED is newest-first (see lib/placeholderData.js).
-const totalDays = computed(() => HISTORY_SEED.length)
-const missedDays = computed(() => HISTORY_SEED.filter((d) => d.status === 'missed').length)
-const adherencePercent = computed(() =>
-  Math.round(((totalDays.value - missedDays.value) / totalDays.value) * 100)
-)
-// Consecutive not-missed days counting back from today; stops at the first
-// missed day. "Edited"/"late" still count as taken, so they extend the streak.
-const currentStreak = computed(() => {
-  let streak = 0
-  for (const d of HISTORY_SEED) {
-    if (d.status === 'missed') break
-    streak++
+const loading = ref(true)
+const error = ref(null)
+const rows = ref([]) // [{ date, dow, doseTime, status }], newest first
+const adherencePercent = ref(0)
+const streakDays = ref(0)
+const missedCount = ref(0)
+const totalDays = ref(0)
+
+onMounted(async () => {
+  try {
+    const [adherence, doses] = await Promise.all([
+      fetchAdherence(HISTORY_DAYS),
+      fetchDoses(),
+    ])
+    const doseByDate = new Map(doses.map((d) => [d.date, d]))
+
+    rows.value = adherence.days.map((day) => {
+      const dose = doseByDate.get(day.date)
+      return {
+        date: formatDateLabel(day.date),
+        dow: dowLabel(day.date),
+        doseTime: dose?.taken_at ? formatClockTime(new Date(dose.taken_at)) : '—',
+        // pk classifies on_time/late/missed; the UI's status pills and
+        // STATUS_LABELS use on-time/late/missed, matching the Dose model's
+        // own status field, so normalise the separator once here.
+        status: day.status.replace('_', '-'),
+      }
+    })
+
+    adherencePercent.value = Math.round(adherence.adherence * 100)
+    streakDays.value = adherence.streak_days
+    missedCount.value = adherence.missed
+    totalDays.value = adherence.of
+  } catch (err) {
+    error.value = "Couldn't load history."
+  } finally {
+    loading.value = false
   }
-  return streak
 })
 </script>
 
 <template>
-  <div class="history-page">
+  <div v-if="loading" class="history-status">Loading…</div>
+  <div v-else-if="error" class="history-status">{{ error }}</div>
+
+  <div v-else class="history-page">
     <!-- Left/center column: page header and the day-by-day dose list. -->
     <div class="main-col">
       <div class="page-header">
@@ -39,7 +65,7 @@ const currentStreak = computed(() => {
       </div>
 
       <div class="day-list">
-        <div v-for="d in HISTORY_SEED" :key="d.date" class="day-row">
+        <div v-for="d in rows" :key="d.date + d.dow" class="day-row">
           <div class="day-row-date">
             <div class="day-row-date-main">{{ d.date }}</div>
             <div class="day-row-dow">{{ d.dow }}</div>
@@ -67,14 +93,14 @@ const currentStreak = computed(() => {
         </div>
         <div class="stat-card accent">
           <div class="stat-label"><span class="stat-dot"></span>Current streak</div>
-          <div class="stat-value">{{ currentStreak }} days</div>
+          <div class="stat-value">{{ streakDays }} days</div>
         </div>
         <!-- Missed doses use the app's red/orange "flag" colour instead — the
              same one the "late"/"edited" pills use — to call it out as the
              one number here worth a second look. -->
         <div class="stat-card flag">
           <div class="stat-label"><span class="stat-dot"></span>Missed</div>
-          <div class="stat-value">{{ missedDays }} of {{ totalDays }}</div>
+          <div class="stat-value">{{ missedCount }} of {{ totalDays }}</div>
         </div>
       </div>
     </div>
@@ -82,6 +108,15 @@ const currentStreak = computed(() => {
 </template>
 
 <style scoped>
+.history-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font: 400 15px 'Inter', sans-serif;
+  color: var(--fg-muted);
+}
+
 .history-page {
   display: flex;
   min-height: 100vh;

@@ -1,3 +1,5 @@
+import datetime
+
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
@@ -8,6 +10,20 @@ class Medication(models.Model):
     """The read-only catalogue of medications users can select from."""
     id = models.SlugField(primary_key=True, max_length=64)
     name = models.CharField(max_length=100)
+
+    # Sent straight through to pk's POST /timeline as the `components` list:
+    # [{"fraction", "delay_h", "ka", "ke" or "half_life_h"}, ...]. web never
+    # does the maths itself -- it only stores and forwards these parameters.
+    #
+    # TODO(you): these are illustrative placeholder shapes (one component for
+    # immediate-release, two for extended-release), not real pharmacokinetics
+    # -- see pk/README.md's "Medication defaults" TODO. Replace with values
+    # sourced from Medsafe or the NZ Formulary and fill in source/source_url/
+    # retrieved below before presenting this as real data.
+    pk_components = models.JSONField(default=list, blank=True)
+    source = models.CharField(max_length=255, blank=True, default="")
+    source_url = models.URLField(blank=True, default="")
+    retrieved = models.DateField(null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -24,6 +40,10 @@ class UserMedication(models.Model):
     )
     is_active = models.BooleanField(default=True)
     selected_at = models.DateTimeField(auto_now_add=True)
+    # The daily dose time doses are compared against when pk classifies a day
+    # on_time/late/missed. No UI to change this yet -- everyone is scheduled
+    # for 8am until Medications.vue grows a time picker.
+    scheduled_time = models.TimeField(default=datetime.time(8, 0))
 
     class Meta:
         ordering = ["-selected_at"]

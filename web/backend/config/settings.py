@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -155,6 +156,15 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# The pk service: a stateless calculator on the private network, reachable
+# only from this VM. web never does the release-curve or adherence maths
+# itself -- it fetches parameters from the database and posts them here.
+# Overridable so local dev (this venv has no VM) can point at a locally-run
+# pk instance instead of the deployed 192.168.56.11.
+PK_SERVICE_URL = os.environ.get('PK_SERVICE_URL', 'http://192.168.56.11:8001')
+PK_SERVICE_TIMEOUT = float(os.environ.get('PK_SERVICE_TIMEOUT', '5'))
 
 """
 # Authenticate user using UserAccount table

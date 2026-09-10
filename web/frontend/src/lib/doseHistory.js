@@ -12,13 +12,21 @@ export const statusLabel = (status) => STATUS_LABELS[status] ?? status
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ]
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // "2026-09-07" -> "Sep 7". Built from the date string's own parts (rather
 // than `new Date("2026-09-07")`, which parses as UTC and can land on the
 // wrong day in some timezones) so it always matches the date the backend meant.
-function formatDateLabel(isoDate) {
+export function formatDateLabel(isoDate) {
   const [, month, day] = isoDate.split('-').map(Number)
   return `${MONTH_NAMES[month - 1]} ${day}`
+}
+
+// "2026-09-07" -> "Mon", used by the full History page. Same local-parts
+// construction as formatDateLabel, for the same reason.
+export function dowLabel(isoDate) {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return DOW_NAMES[new Date(year, month - 1, day).getDay()]
 }
 
 // "2026-09-07" for a given local Date, matching the backend's `date` field.

@@ -1,5 +1,9 @@
-// Placeholder data mirroring the Dose design mock, until the real
-// medication/dose-log/curve APIs (including the "pk" release-curve service) exist.
+// Placeholder data mirroring the Dose design mock, until Medications.vue's
+// descriptive blurb/longDesc/shape fields move to the real backend catalogue
+// (fetchMedications() in api.js already returns id/name for real; the
+// richer per-medication copy below is still hand-written). History.vue and
+// TodayTimeline.vue no longer use this file -- see fetchAdherence() and
+// fetchTimeline() in api.js, both computed by the pk service.
 
 export const MED_DATA = [
   {
@@ -42,37 +46,4 @@ export const MED_DATA = [
     shape: [[0, 0], [25, 60], [45, 88], [65, 88], [85, 55], [100, 15]],
     source: 'Source: Medsafe consumer medicine information · retrieved 6 Sep 2026',
   },
-]
-
-export const HISTORY_SEED = [
-  { date: 'Sep 7', dow: 'Sun', doseTime: '8:00 am', status: 'edited' },
-  { date: 'Sep 6', dow: 'Sat', doseTime: '8:05 am', status: 'on-time' },
-  { date: 'Sep 5', dow: 'Fri', doseTime: '8:35 am', status: 'late' },
-  { date: 'Sep 4', dow: 'Thu', doseTime: '7:58 am', status: 'on-time' },
-  { date: 'Sep 3', dow: 'Wed', doseTime: '—', status: 'missed' },
-  { date: 'Sep 2', dow: 'Tue', doseTime: '8:02 am', status: 'on-time' },
-  { date: 'Sep 1', dow: 'Mon', doseTime: '8:10 am', status: 'on-time' },
-  { date: 'Aug 31', dow: 'Sun', doseTime: '9:20 am', status: 'late' },
-  { date: 'Aug 30', dow: 'Sat', doseTime: '8:04 am', status: 'on-time' },
-  { date: 'Aug 29', dow: 'Fri', doseTime: '7:55 am', status: 'on-time' },
-  { date: 'Aug 28', dow: 'Thu', doseTime: '8:12 am', status: 'on-time' },
-  { date: 'Aug 27', dow: 'Wed', doseTime: '—', status: 'missed' },
-  { date: 'Aug 26', dow: 'Tue', doseTime: '8:01 am', status: 'on-time' },
-  { date: 'Aug 25', dow: 'Mon', doseTime: '8:08 am', status: 'on-time' },
-]
-
-export const STATUS_LABELS = {
-  'on-time': 'On time',
-  edited: 'Edited',
-  late: 'Late',
-  missed: 'Missed',
-}
-
-export const TODAY_TIMELINE = [
-  { time: '8:00 am', label: 'Taken', state: 'past' },
-  { time: '9:12 am', label: 'Should start to feel it', state: 'past' },
-  { time: '10:30 am', label: 'First peak', state: 'past' },
-  { time: '1:45 pm', label: 'Second release', state: 'past' },
-  { time: '5:20 pm', label: 'Starting to fade', state: 'future' },
-  { time: '8:10 pm', label: 'Largely worn off', state: 'future' },
 ]

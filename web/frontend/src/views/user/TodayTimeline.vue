@@ -3,9 +3,9 @@
 // the release timeline, the notes list, and the last-10-days glance — all
 // from real data passed in / fetched here, replacing the old
 // lib/placeholderData.js-backed version.
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { fetchNotes, addNote as addNoteApi, logDose } from '@/api.js'
-import { buildTimelineSteps, elapsedMinutes, TIMELINE_SPAN_MIN, formatClockTime, formatLongDate } from '@/lib/timeline.js'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { fetchNotes, addNote as addNoteApi, logDose, fetchTimeline } from '@/api.js'
+import { buildTimelineSteps, timelineSpanMinutes, elapsedMinutes, formatClockTime, formatLongDate } from '@/lib/timeline.js'
 import { statusLabel } from '@/lib/doseHistory.js'
 
 const props = defineProps({
@@ -41,20 +41,44 @@ onUnmounted(() => {
   clearInterval(nowTimer)
 })
 
-const timeline = computed(() => buildTimelineSteps(props.dose.taken_at, now.value))
+// The release timeline itself -- "Should start to feel it", "First peak",
+// etc -- is computed by the pk service (see api.js's fetchTimeline()), not
+// here. Refetched whenever the logged taken_at changes (i.e. after editing
+// today's dose), since the whole curve shifts with it.
+const timelineEvents = ref([])
+const timelineLoading = ref(true)
+const timelineError = ref(null)
+
+async function loadTimeline() {
+  timelineLoading.value = true
+  timelineError.value = null
+  try {
+    const data = await fetchTimeline(props.dose.taken_at)
+    timelineEvents.value = data.events
+  } catch (err) {
+    timelineError.value = "Couldn't load the release timeline."
+  } finally {
+    timelineLoading.value = false
+  }
+}
+onMounted(loadTimeline)
+watch(() => props.dose.taken_at, loadTimeline)
+
+const timeline = computed(() => buildTimelineSteps(props.dose.taken_at, now.value, timelineEvents.value))
+const timelineSpanMin = computed(() => timelineSpanMinutes(timelineEvents.value))
 
 // The timeline is a linear time axis: every row sits at its true distance
 // from the dose, scaled by this many pixels per minute, and the NOW marker
 // creeps down at the same rate. Change this one number to rescale the whole
-// thing (the axis ends up TIMELINE_SPAN_MIN * PX_PER_MIN tall).
+// thing (the axis ends up timelineSpanMin * PX_PER_MIN tall).
 //
-// At 0.5 the full ~12h span is about 365px. Don't raise it much further
-// without checking the tightest gap — "Taken" to "Should start to feel it"
-// is only 72 minutes, and each row needs ~32px for its two lines of text.
+// At 0.5 a ~12h span is about 365px. Don't raise it much further without
+// checking the tightest gap between two of pk's events, and each row needs
+// ~32px for its two lines of text.
 const PX_PER_MIN = 0.5
 
 // How far down the axis "now" is, in px.
-const nowPx = computed(() => elapsedMinutes(props.dose.taken_at, now.value) * PX_PER_MIN)
+const nowPx = computed(() => elapsedMinutes(props.dose.taken_at, now.value, timelineSpanMin.value) * PX_PER_MIN)
 const nowLabel = computed(() => `NOW · ${formatClockTime(now.value)}`)
 
 // --- Editing today's taken time -------------------------------------------
@@ -135,7 +159,9 @@ function resetLog() {
              `v-for` repeats the row block once per step; `:key` gives Vue a
              stable id per row so it can track items efficiently. -->
         <div class="timeline-col">
-          <div class="timeline-canvas" :style="{ height: TIMELINE_SPAN_MIN * PX_PER_MIN + 'px' }">
+          <p v-if="timelineLoading" class="timeline-status">Loading timeline…</p>
+          <p v-else-if="timelineError" class="timeline-status">{{ timelineError }}</p>
+          <div v-else class="timeline-canvas" :style="{ height: timelineSpanMin * PX_PER_MIN + 'px' }">
             <!-- One continuous rail behind the dots, with the elapsed part
                  of it filled in on top, down to the NOW position. -->
             <span class="rail-track"></span>
@@ -143,7 +169,7 @@ function resetLog() {
 
             <div
               v-for="step in timeline"
-              :key="step.time"
+              :key="step.label"
               class="timeline-item"
               :class="step.state"
               :style="{ top: step.offsetMin * PX_PER_MIN + 'px' }"
@@ -326,6 +352,11 @@ function resetLog() {
   /* Headroom for the half of the NOW badge (and of the first dot) that sits
      above the top of the axis when no time has elapsed yet. */
   padding-top: 18px;
+}
+
+.timeline-status {
+  font: 400 13px 'Inter', sans-serif;
+  color: var(--fg-muted);
 }
 
 /* The time axis everything inside is positioned against. Its height comes

@@ -132,28 +132,21 @@ export async function addNote(text) {
   return response.data
 }
 
-/*
----------------------------------------------------------------------------
-Future helpers for Medications.vue and History.vue
----------------------------------------------------------------------------
-Both views currently render placeholder data from lib/placeholderData.js.
-Once the medication/dose-log backend endpoints exist, replace those
-placeholder imports with calls like the ones sketched below (following the
-same async/response.data pattern as fetchMe() above).
-
-Fetch the list of medications available to the current user, replacing
-MED_DATA from lib/placeholderData.js.
-export async function fetchMedications() {
-  const response = await api.get("/medications/")
+// Fetch today's release-curve timeline for the current user's active
+// medication -- computed by the pk service, not here. Requires a dose to
+// already be logged for today (pass an ISO-8601 timestamp with a UTC offset
+// as `takenAt` to ask about a different moment instead).
+// Returns { taken_at, events: [{ at, label }], curve: [{ t_h, level }], ... }
+export async function fetchTimeline(takenAt) {
+  const response = await api.get("/api/timeline/", { params: takenAt ? { taken_at: takenAt } : undefined })
   return response.data
 }
 
-Fetch the dose-log history (date, dose time, on-time/late/edited/missed
-status, and which medication was taken) for the current user, replacing
-HISTORY_SEED from lib/placeholderData.js. Consider accepting a date range
-or limit once History.vue needs more than "the last two weeks".
-export async function fetchDoseHistory() {
-  const response = await api.get("/doses/history/")
+// Fetch adherence stats over the last `days` days (default 14) for the
+// current user's active medication -- on_time/late/missed classification,
+// streak and adherence percentage are computed by the pk service, not here.
+// Returns { days: [{ date, status, minutes_late? }], adherence, streak_days, missed, of, ... }
+export async function fetchAdherence(days) {
+  const response = await api.get("/api/adherence/", { params: days ? { days } : undefined })
   return response.data
 }
-*/

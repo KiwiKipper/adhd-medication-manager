@@ -1,21 +1,9 @@
 // Builds the "release timeline" shown on the Today page, anchored to the
-// real time a dose was taken.
-//
-// NOTE: the offsets below are generic placeholders, not per-medication
-// pharmacokinetics — there's no dose-duration data in the backend yet (see
-// the "pk service" TODO in curve.js). Once that exists, swap this out for a
-// per-medication calculation instead of these fixed offsets.
-const MILESTONE_OFFSETS_MIN = [
-  { label: 'Should start to feel it', offsetMin: 72 },
-  { label: 'First peak', offsetMin: 150 },
-  { label: 'Second release', offsetMin: 345 },
-  { label: 'Starting to fade', offsetMin: 560 },
-  { label: 'Largely worn off', offsetMin: 730 },
-]
-
-// Total minutes the timeline covers, from "Taken" to the last milestone. The
-// Today page uses this to size its linear time axis.
-export const TIMELINE_SPAN_MIN = MILESTONE_OFFSETS_MIN[MILESTONE_OFFSETS_MIN.length - 1].offsetMin
+// real time a dose was taken. The milestones themselves ("First peak",
+// "Second release", ...) come from the pk service via fetchTimeline() in
+// api.js -- this file only turns that response into what the page renders
+// (clock strings, past/future state, pixel offsets), matching whatever
+// events pk actually returned rather than a fixed medication-agnostic list.
 
 // Formats a Date as the design's "8:12 am" style clock time.
 export function formatClockTime(date) {
@@ -31,32 +19,43 @@ export function formatLongDate(date = new Date()) {
   return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 }
 
-// Returns the [{ time, label, state, offsetMin }] list TodayTimeline.vue
-// renders: "Taken" at takenAt, then each milestone above, each marked 'past'
-// or 'future' by comparing its clock time against `now`. `offsetMin` is how
-// many minutes after the dose the step happens — the Today page multiplies it
-// by a px-per-minute scale to place the row on its linear time axis.
-export function buildTimelineSteps(takenAt, now) {
+// Turns pk's `events` ([{ at, label }], chronological, "Taken" first) into
+// the [{ time, label, state, offsetMin }] list TodayTimeline.vue renders.
+// `state` is 'past' or 'future', by comparing each event's real timestamp
+// against `now`. `offsetMin` is how many minutes after the dose the step
+// happens -- the Today page multiplies it by a px-per-minute scale to place
+// the row on its linear time axis.
+export function buildTimelineSteps(takenAt, now, events) {
   const taken = new Date(takenAt)
-  const steps = [{ time: formatClockTime(taken), label: 'Taken', state: 'past', offsetMin: 0 }]
-
-  for (const { label, offsetMin } of MILESTONE_OFFSETS_MIN) {
-    const at = new Date(taken.getTime() + offsetMin * 60_000)
-    steps.push({
+  return (events ?? []).map((event) => {
+    const at = new Date(event.at)
+    return {
       time: formatClockTime(at),
-      label,
+      label: event.label,
       state: at <= now ? 'past' : 'future',
-      offsetMin,
-    })
-  }
+      offsetMin: (at - taken) / 60_000,
+    }
+  })
+}
 
-  return steps
+// Total minutes the timeline covers, from "Taken" to its last event -- the
+// Today page uses this to size its linear time axis. Falls back to an hour
+// so the axis still renders something while events haven't loaded yet, or
+// for the rare curve that never even reaches "Should start to feel it"
+// within the sampled window (so pk returns only the "Taken" event).
+const MIN_SPAN_MIN = 60
+
+export function timelineSpanMinutes(events) {
+  if (!events || events.length < 2) return MIN_SPAN_MIN
+  const takenAt = new Date(events[0].at)
+  const lastAt = new Date(events[events.length - 1].at)
+  return Math.max(MIN_SPAN_MIN, (lastAt - takenAt) / 60_000)
 }
 
 // Minutes since the dose was taken, clamped to the timeline's span. The
 // clamp keeps the NOW marker on the axis: pinned to the top if the taken
 // time is in the future, and to the bottom once the dose has worn off.
-export function elapsedMinutes(takenAt, now) {
+export function elapsedMinutes(takenAt, now, spanMin) {
   const elapsed = (now - new Date(takenAt)) / 60_000
-  return Math.min(TIMELINE_SPAN_MIN, Math.max(0, elapsed))
+  return Math.min(spanMin, Math.max(0, elapsed))
 }
