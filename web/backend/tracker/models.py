@@ -92,11 +92,20 @@ class Note(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notes",
     )
     text = models.TextField()
+    # The day the note is *about*, which is not always the day it was typed --
+    # a note written at 1am belongs to the day whose dose it describes. Kept
+    # separate from created_at so per-day lookup (and, later, placing notes on
+    # the curve) asks about the right day.
+    date = models.DateField(default=timezone.localdate)
+    # Marks a note the user wants to stand out -- a bad reaction, a skipped
+    # dose, something to raise with a prescriber.
+    flagged = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-date", "-created_at"]
+        indexes = [models.Index(fields=["user", "date"])]
 
     def __str__(self):
         return f"{self.user} note @ {self.created_at:%Y-%m-%d %H:%M}"
