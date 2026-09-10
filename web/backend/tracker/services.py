@@ -30,6 +30,14 @@ def _call_pk(path, payload):
     url = f"{settings.PK_SERVICE_URL}{path}"
     try:
         response = requests.post(url, json=payload, timeout=settings.PK_SERVICE_TIMEOUT)
+    except requests.Timeout:
+        # A slow pk is reported separately from a dead one: PK_SERVICE_TIMEOUT
+        # is the knob to turn, and the caller shouldn't have to read a stack
+        # trace to work that out.
+        raise PkServiceError(
+            "pk service did not respond within %ss" % settings.PK_SERVICE_TIMEOUT,
+            status_code=502,
+        )
     except requests.RequestException as exc:
         raise PkServiceError("pk service is unreachable: %s" % exc, status_code=502)
 
