@@ -9,24 +9,27 @@
 # forwarding. The forwarded ports below exist only for the browser-facing
 # entry point.
 #
-# Box choice is per node and is driven by the Python each one needs:
+# Box choice is per node, and both boxes are pinned by what Django 6.1
+# (web/requirements.txt) demands at each end:
 #
-#   db, pk -- 18.04 (Python 3.6). Past end of life, but bionic is still on
-#             archive.ubuntu.com and `apt-get update` still resolves, and pk
-#             pins Django 3.2 specifically because 3.6 is what this box
-#             ships. Left alone: it works, and moving it would mean
-#             upgrading pk's Django for no gain. See pk/requirements.txt.
-#   web    -- 24.04 (Python 3.12). web/requirements.txt pins Django 6.1,
-#             which requires Python 3.12 or newer, so this node *cannot*
-#             stay on 18.04 -- that mismatch is why there was never a
-#             working web.sh.
+#   web -- 24.04. Django 6.1 needs Python 3.12; 18.04 ships 3.6. That
+#          mismatch is why there was never a working web.sh.
+#   db  -- 24.04. Django 6.1 needs PostgreSQL 15 or later, and bionic's
+#          newest is 10.23 -- `migrate` fails outright with
+#          NotSupportedError. Noble ships 16.
+#   pk  -- 18.04. Nothing forces this one: pk talks to no database, and it
+#          pins Django 3.2 precisely because 3.6 is what this box ships.
+#          Left where it is, working, rather than upgraded for symmetry.
+#
+# Bionic is past end of life but is still served from archive.ubuntu.com, so
+# `apt-get update` on the pk node still resolves.
 
 Vagrant.configure("2") do |config|
 
   servers = [
     {
       :hostname => "db",
-      :box => "bento/ubuntu-18.04",
+      :box => "bento/ubuntu-24.04",
       :ip => "192.168.56.10",
       :ssh_port => 2200,
       :memory => 1024,
