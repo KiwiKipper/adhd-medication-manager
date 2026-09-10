@@ -5,5 +5,8 @@ __pycache__/
 .venv/
 venv/
 
+# Vagrant local machine state (VM ids, per-machine scratch) -- specific to
+# whoever ran `vagrant up`, never shared.
+.vagrant/
 # collectstatic output (STATIC_ROOT), built on the web VM
 web/backend/staticfiles/

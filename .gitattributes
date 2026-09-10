@@ -1,0 +1,9 @@
+# The provisioning scripts are checked out on the host but executed inside
+# the Linux VMs via Vagrant's synced folder. On Windows, git's default
+# core.autocrlf=true would check them out with CRLF line endings, and bash
+# then fails on the very first line with:
+#
+#     /tmp/vagrant-shell: line 2: $'\r': command not found
+#
+# Forcing LF keeps `vagrant up` working from a fresh clone on any platform.
+*.sh text eol=lf
