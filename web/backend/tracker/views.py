@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -167,9 +168,37 @@ def adherence_view(request) -> Response:
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def notes_view(request) -> Response:
+    """The signed-in user's notes.
+
+    GET accepts ?date=YYYY-MM-DD (or ?date=today) to fetch just that day's
+    notes; without it every note is returned, newest day first. POST takes
+    "text", and optionally "date" (defaults to today) and "flagged".
+    """
     if request.method == "POST":
-        note = Note.objects.create(user=request.user, text=request.data.get("text", ""))
+        serializer = NoteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        note = serializer.save(user=request.user)
         return Response(NoteSerializer(note).data, status=status.HTTP_201_CREATED)
 
     notes = Note.objects.filter(user=request.user)
+
+    date = request.query_params.get("date")
+    if date == "today":
+        notes = notes.filter(date=timezone.localdate())
+    elif date:
+        # parse_date returns None for the wrong shape but raises for a
+        # well-formed impossible date ("2026-02-30"); both are the caller's
+        # mistake, not a server error.
+        try:
+            parsed = parse_date(date)
+        except ValueError:
+            parsed = None
+        if parsed is None:
+            return Response(
+                {"error": "date must be YYYY-MM-DD or 'today'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        notes = notes.filter(date=parsed)
+
     return Response(NoteSerializer(notes, many=True).data)

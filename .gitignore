@@ -4,3 +4,6 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# collectstatic output (STATIC_ROOT), built on the web VM
+web/backend/staticfiles/

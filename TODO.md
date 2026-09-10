@@ -6,30 +6,32 @@ tracked in [web/features.md](web/features.md) and are not blockers.
 
 ## 1. Backend
 
-- [ ] **Switch to PostgreSQL.** `settings.py` still uses SQLite; the Postgres
-      block sits commented out inside a docstring with dummy credentials
-      (`mydatabase`/`mydatabaseuser`). Point it at the `db` VM
-      (`192.168.56.10`, database `adhd`, user `adhd`) and read credentials
-      from environment variables rather than hardcoding them.
-      See [web/backend/config/settings.py:85-108](web/backend/config/settings.py#L85-L108).
-- [ ] **Production settings.** `DEBUG = True`, `ALLOWED_HOSTS = []` and a
-      hardcoded `django-insecure-` `SECRET_KEY` — Django will refuse to serve
-      on the web VM as-is. Drive all three from env vars with dev-friendly
-      defaults.
-- [ ] **CORS origins.** `CORS_ALLOWED_ORIGINS` only lists
-      `http://localhost:5173`; add the web VM origin so the built frontend can
-      reach the API.
-- [ ] **Write tests.** [tracker/tests.py](web/backend/tracker/tests.py) and
-      [users/tests.py](web/backend/users/tests.py) are 3-line stubs. The `pk`
-      service has real tests; `web` has none. Cover at minimum: dose logging,
-      the `/timeline/` and `/adherence/` pk passthroughs (with pk stubbed), and
-      auth on the `users` endpoints.
-- [ ] **pk failure handling.** Confirm `tracker/services.py` degrades sensibly
-      when the pk VM is down or times out (`PK_SERVICE_TIMEOUT`), rather than
-      500-ing the Today page.
-- [ ] **`Note` model fields.** No `date` or `flagged` field, so per-day note
-      lookup and "flagged note" styling can't be expressed yet. Add both if
-      the notes-on-curve work lands in v1.
+- [x] **Switch to PostgreSQL.** `settings.py` now defaults to the postgres
+      backend pointed at the `db` VM (`192.168.56.10`, database/user `adhd`),
+      with `DB_NAME`/`DB_USER`/`DB_PASSWORD`/`DB_HOST`/`DB_PORT` read from the
+      environment. `DB_ENGINE=sqlite` switches back to SQLite for local dev
+      and for running the test suite without a VM.
+- [x] **Production settings.** `DJANGO_SECRET_KEY`, `DJANGO_DEBUG` and
+      `DJANGO_ALLOWED_HOSTS` are env-driven with dev-friendly defaults, and
+      `STATIC_ROOT` is set so `collectstatic` has somewhere to go.
+      `manage.py check` passes with `DJANGO_DEBUG=False`.
+- [x] **CORS origins.** `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` now
+      cover the web VM (`192.168.56.12`) alongside localhost, and are
+      overridable via `DJANGO_CORS_ORIGINS`/`DJANGO_CSRF_ORIGINS`.
+- [x] **Write tests.** 66 tests across
+      [tracker/tests.py](web/backend/tracker/tests.py) and
+      [users/tests.py](web/backend/users/tests.py): dose logging, the
+      `/timeline/` and `/adherence/` pk passthroughs (pk patched out), pk
+      failure modes, notes, and auth on every endpoint. Run with
+      `DB_ENGINE=sqlite py manage.py test` from `web/backend/`.
+- [x] **pk failure handling.** Confirmed by test: a dead or slow pk VM gives a
+      502 with a readable `error` body, not a 500, and pk's own 400s pass
+      through with their message. A timeout is now reported separately from a
+      refused connection so `PK_SERVICE_TIMEOUT` is the obvious knob.
+- [x] **`Note` model fields.** `date` (the day the note is *about*, defaulting
+      to today) and `flagged` added, with a migration that backfills existing
+      rows from `created_at`. `GET /notes/?date=YYYY-MM-DD` (or `?date=today`)
+      does per-day lookup; both fields are settable on POST.
 - [ ] *post-v1* — dose `taken_at` editing (`PATCH /doses/<id>/`), per-day
       endpoint (`GET /days/<date>/`), stats endpoint (`GET /doses/stats/`),
       and the LLM summary endpoints. See features.md items 1-6.

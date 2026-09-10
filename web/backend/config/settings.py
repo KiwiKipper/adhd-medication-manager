@@ -11,22 +11,50 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+def env_bool(name, default):
+    """Read a boolean from the environment. Anything in the truthy set counts
+    as True; everything else (including an empty value) is False."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#o9==s8(c(@4scbi)yr-$5vpi5%+$n43^)t&qw@!2a8tyd$1+-'
+
+def env_list(name, default):
+    """Read a comma-separated list from the environment, ignoring blanks."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return list(default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+# Everything below that differs between a laptop and the web VM is driven by
+# an environment variable, with a default that keeps `manage.py runserver`
+# working out of the box. provisions/web.sh sets these in the gunicorn unit.
+
+# SECURITY WARNING: keep the secret key used in production secret! The
+# fallback is a development-only key -- set DJANGO_SECRET_KEY on the VM.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-#o9==s8(c(@4scbi)yr-$5vpi5%+$n43^)t&qw@!2a8tyd$1+-',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool('DJANGO_DEBUG', True)
 
-ALLOWED_HOSTS = []
+# Django refuses to serve with DEBUG off and an empty ALLOWED_HOSTS, so the
+# default covers localhost plus the web VM's private-network address.
+ALLOWED_HOSTS = env_list(
+    'DJANGO_ALLOWED_HOSTS',
+    ['localhost', '127.0.0.1', '192.168.56.12', 'web'],
+)
 
 
 # Application definition
@@ -44,11 +72,21 @@ INSTALLED_APPS = [
     'tracker'
 ]
 
-# Send credentials with request
-# vue frontend running at localhost:5173
+# Send credentials with request. The SPA runs on a different origin to the
+# API in both deployments -- Vite's dev server on a laptop (localhost:5173)
+# and the built frontend served from the web VM (192.168.56.12) -- so both
+# have to be trusted for the session cookie and CSRF token to survive.
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]
-CSRF_TRUSTED_ORIGINS = ["http://localhost:5173"]
+
+_DEFAULT_FRONTEND_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://192.168.56.12:5173",
+    "http://192.168.56.12:8000",
+]
+
+CORS_ALLOWED_ORIGINS = env_list('DJANGO_CORS_ORIGINS', _DEFAULT_FRONTEND_ORIGINS)
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_ORIGINS', CORS_ALLOWED_ORIGINS)
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -84,31 +122,46 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-"""
-Will have to change this to PostgreSQL when we deploy the app.
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "mydatabase",
-        "USER": "mydatabaseuser",
-        "PASSWORD": "mypassword",
-        "HOST": "127.0.0.1",
-        "PORT": "5432",
-    }
-}
- 
-"""
+# The db VM (192.168.56.10) runs postgres; provisions/db.sh creates the
+# `adhd` database and role, and Django migrations own the schema. Credentials
+# come from the environment so nothing secret lives in the repo.
+#
+# Set DB_ENGINE=sqlite for local development or to run the test suite on a
+# laptop with no postgres and no VMs:
+#
+#     DB_ENGINE=sqlite py manage.py test
+#
+DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql')
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if DB_ENGINE == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'adhd'),
+            'USER': os.environ.get('DB_USER', 'adhd'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', '192.168.56.10'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+        }
+    }
 
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
+
+# Hashing a password with the default PBKDF2 settings takes about a second,
+# which the auth tests do dozens of times. Under `manage.py test` only, drop
+# to a fast hasher -- it takes the suite from minutes to seconds and never
+# affects a real deployment.
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -146,6 +199,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Where `manage.py collectstatic` gathers the admin's static files for
+# gunicorn to serve on the web VM. Ignored by `runserver`, which serves them
+# straight out of each app.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 # Email
