@@ -5,7 +5,7 @@
 // lib/placeholderData.js-backed version.
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchNotes, addNote as addNoteApi, logDose } from '@/api.js'
-import { buildTimelineSteps, formatClockTime, formatLongDate } from '@/lib/timeline.js'
+import { buildTimelineSteps, elapsedMinutes, TIMELINE_SPAN_MIN, formatClockTime, formatLongDate } from '@/lib/timeline.js'
 import { statusLabel } from '@/lib/doseHistory.js'
 
 const props = defineProps({
@@ -23,33 +23,39 @@ const loggedDelayMin = computed(() => Math.round((loggedAt.value - takenAt.value
 
 const todayLabel = formatLongDate()
 
-// Ticks every 30s so the "NOW" marker and past/future states stay live
-// without the user having to refresh the page.
+// Ticks once a minute so the NOW marker and past/future states stay live
+// without the user having to refresh. The first tick is delayed to the next
+// whole minute, so the badge's clock time flips exactly on the minute rather
+// than drifting by however long ago the page happened to load.
 const now = ref(new Date())
+let firstTickTimeout
 let nowTimer
 onMounted(() => {
-  nowTimer = setInterval(() => { now.value = new Date() }, 30_000)
+  firstTickTimeout = setTimeout(() => {
+    now.value = new Date()
+    nowTimer = setInterval(() => { now.value = new Date() }, 60_000)
+  }, 60_000 - (Date.now() % 60_000))
 })
-onUnmounted(() => clearInterval(nowTimer))
+onUnmounted(() => {
+  clearTimeout(firstTickTimeout)
+  clearInterval(nowTimer)
+})
 
 const timeline = computed(() => buildTimelineSteps(props.dose.taken_at, now.value))
 
-// Splices a `{ now: true }` marker into the timeline at the boundary between
-// "past" and "future" steps, so the template can render it as a single rail
-// with one `v-for` instead of two separate lists stitched together by hand.
-const timelineWithNow = computed(() => {
-  const items = []
-  let inserted = false
-  for (const step of timeline.value) {
-    if (!inserted && step.state === 'future') {
-      items.push({ now: true, time: `NOW · ${formatClockTime(now.value)}` })
-      inserted = true
-    }
-    items.push(step)
-  }
-  if (!inserted) items.push({ now: true, time: `NOW · ${formatClockTime(now.value)}` })
-  return items
-})
+// The timeline is a linear time axis: every row sits at its true distance
+// from the dose, scaled by this many pixels per minute, and the NOW marker
+// creeps down at the same rate. Change this one number to rescale the whole
+// thing (the axis ends up TIMELINE_SPAN_MIN * PX_PER_MIN tall).
+//
+// At 0.5 the full ~12h span is about 365px. Don't raise it much further
+// without checking the tightest gap — "Taken" to "Should start to feel it"
+// is only 72 minutes, and each row needs ~32px for its two lines of text.
+const PX_PER_MIN = 0.5
+
+// How far down the axis "now" is, in px.
+const nowPx = computed(() => elapsedMinutes(props.dose.taken_at, now.value) * PX_PER_MIN)
+const nowLabel = computed(() => `NOW · ${formatClockTime(now.value)}`)
 
 // --- Editing today's taken time -------------------------------------------
 const editing = ref(false)
@@ -121,32 +127,40 @@ function resetLog() {
           <span class="flag-text">Logged at {{ formatClockTime(loggedAt) }} · {{ loggedDelayMin }} min after taking</span>
         </div>
 
-        <!-- Vertical list of milestones ("Taken", "First peak", ...), with a
-             "now" marker spliced in at the past/future boundary (see
-             `timelineWithNow`). `v-for` repeats this block once per item;
-             `:key` gives Vue a stable id per row so it can track/re-order
-             items efficiently instead of re-rendering everything. -->
+        <!-- The milestones ("Taken", "First peak", ...) on a linear time
+             axis: the canvas is one pixel tall per minute of the dose, and
+             every row is absolutely positioned at its own offset, so the
+             gaps between rows match the real gaps in time. The NOW marker
+             is placed the same way and creeps down a pixel a minute.
+             `v-for` repeats the row block once per step; `:key` gives Vue a
+             stable id per row so it can track items efficiently. -->
         <div class="timeline-col">
-          <div
-            v-for="(step, i) in timelineWithNow"
-            :key="step.time"
-            class="timeline-item"
-            :class="step.now ? 'now' : step.state"
-          >
-            <div class="timeline-rail">
-              <span class="timeline-dot"></span>
-              <!-- No connecting line after the very last item. -->
-              <span v-if="i < timelineWithNow.length - 1" class="timeline-line"></span>
+          <div class="timeline-canvas" :style="{ height: TIMELINE_SPAN_MIN * PX_PER_MIN + 'px' }">
+            <!-- One continuous rail behind the dots, with the elapsed part
+                 of it filled in on top, down to the NOW position. -->
+            <span class="rail-track"></span>
+            <span class="rail-elapsed" :style="{ height: nowPx + 'px' }"></span>
+
+            <div
+              v-for="step in timeline"
+              :key="step.time"
+              class="timeline-item"
+              :class="step.state"
+              :style="{ top: step.offsetMin * PX_PER_MIN + 'px' }"
+            >
+              <span class="timeline-marker"><span class="timeline-dot"></span></span>
+              <div class="timeline-body">
+                <div class="timeline-time">{{ step.time }}</div>
+                <div class="timeline-label">{{ step.label }}</div>
+              </div>
             </div>
-            <!-- The "now" marker gets a horizontal line + badge instead of a
-                 time/label pair, matching the design's "NOW · 2:47 pm" cue. -->
-            <div v-if="step.now" class="now-row">
+
+            <!-- NOW marker: just a line and a badge, living in the empty
+                 space to the right of the labels so it never crosses any
+                 text, however close to a row it happens to sit. -->
+            <div class="now-overlay" :style="{ top: nowPx + 'px' }">
               <span class="now-line"></span>
-              <span class="now-badge">{{ step.time }}</span>
-            </div>
-            <div v-else class="timeline-body">
-              <div class="timeline-time">{{ step.time }}</div>
-              <div class="timeline-label">{{ step.label }}</div>
+              <span class="now-badge">{{ nowLabel }}</span>
             </div>
           </div>
         </div>
@@ -217,6 +231,10 @@ function resetLog() {
   max-width: 980px;
   display: flex;
   flex-direction: column;
+  /* flex: 1 + min-height: 0 give this a real height to divide up, which is
+     what lets .timeline-col below scroll its own overflow instead of the
+     axis being clipped by .main-col on a short window. */
+  flex: 1;
   min-height: 0;
 }
 
@@ -305,22 +323,72 @@ function resetLog() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Headroom for the half of the NOW badge (and of the first dot) that sits
+     above the top of the axis when no time has elapsed yet. */
+  padding-top: 18px;
 }
 
-.timeline-item {
-  display: flex;
-  gap: 14px;
-}
-
-.timeline-rail {
+/* The time axis everything inside is positioned against. Its height comes
+   from an inline style (span in minutes x px-per-minute), so a row's `top`
+   in px is simply its offset in minutes. */
+.timeline-canvas {
+  position: relative;
+  /* Never let the scroll container squash the axis — its height is the
+     scale, so it has to stay exactly as tall as the inline style says. A
+     margin (not padding) keeps the last row's two lines of text clear of
+     the bottom without eating into that height. */
   flex: none;
-  /* Wide enough for the biggest dot (the "now" marker's 14px ring) so it
-     never gets clipped against the rail's edge. */
-  width: 14px;
+  margin-bottom: 40px;
+
+  --rail-width: 14px; /* wide enough for the biggest dot */
+  --rail-gap: 14px; /* space between the rail and the label text */
+  --label-left: calc(var(--rail-width) + var(--rail-gap));
+  --label-col-width: 200px; /* wider than the longest label; the NOW line starts after it */
+}
+
+.rail-track,
+.rail-elapsed {
+  position: absolute;
+  /* Centred in the rail column, so the dots sit on top of it. */
+  left: calc(var(--rail-width) / 2 - 1px);
+  top: 0;
+  width: 2px;
+}
+
+.rail-track {
+  bottom: 0;
+  background: var(--border);
+}
+
+/* The elapsed part of the rail, drawn over the grey track. Its height is
+   set inline from the NOW position, so it grows as the day goes on. */
+.rail-elapsed {
+  background: var(--accent);
+}
+
+/* Each milestone, placed by inline `top` at its own minute offset. */
+.timeline-item {
+  position: absolute;
+  left: 0;
+  right: 0;
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--rail-gap);
+}
+
+/* A fixed-width, zero-height slot for the row's dot. Centring inside a box
+   with no height puts the dot's middle exactly on the row's time, whatever
+   size the dot is, and the fixed width keeps every label starting at the
+   same x. */
+.timeline-marker {
+  position: relative; /* with z-index, draws over the rail */
+  z-index: 1;
+  flex: none;
+  width: var(--rail-width);
+  height: 0;
+  display: flex;
   align-items: center;
-  overflow: visible;
+  justify-content: center;
 }
 
 .timeline-dot {
@@ -337,31 +405,30 @@ function resetLog() {
   height: 7px;
 }
 
-/* The "now" marker's dot is bigger and hollow, echoing the design's ring. */
-.timeline-item.now .timeline-dot {
-  background: var(--bg);
-  border: 2px solid var(--fg);
-  width: 14px;
-  height: 14px;
-}
-
-.timeline-line {
-  flex: 1;
-  width: 2px;
-  background: var(--border);
-  margin-top: 2px;
-}
-
+/* Lifts the time text so it reads as level with the dot beside it. */
 .timeline-body {
-  padding-bottom: 24px;
+  margin-top: -8px;
 }
 
-.now-row {
-  flex: 1;
+/* The NOW line and badge. Sits to the right of the label column so it can
+   never overlap a row's text, and is centred on its exact minute. */
+.now-overlay {
+  position: absolute;
+  left: calc(var(--label-left) + var(--label-col-width));
+  right: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 24px;
+  /* No gap: the line runs right up to the badge so the two read as one
+     marker. */
+  transform: translateY(-50%);
+}
+
+/* Small easing so the once-a-minute step, and bigger jumps when the taken
+   time is edited, glide instead of snapping. */
+.now-overlay,
+.rail-elapsed {
+  transition: top 0.4s ease, height 0.4s ease;
 }
 
 .now-line {
