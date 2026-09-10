@@ -61,12 +61,20 @@ fi
 # database password and the secret key.
 install -m 0640 "$DEPLOY/web.env" /etc/web.env
 
-# `set -a` exports everything defined until `set +a`, which is how the same
-# systemd-format file gets into this shell's environment.
-set -a
-# shellcheck disable=SC1091
-. /etc/web.env
-set +a
+# Load the same file into this shell so the manage.py calls below see it.
+#
+# Deliberately NOT `. /etc/web.env`. The file is in systemd's format, where a
+# value is literal text to end of line -- but bash sourcing it would evaluate
+# that text as shell, and the secret key alone contains `(`, `!`, `#` and `$`.
+# Reading key/value pairs and exporting them directly keeps the systemd
+# reading of the file authoritative. Splitting on the first `=` only, so a
+# value containing `=` survives intact.
+while IFS='=' read -r key value; do
+    case "$key" in
+        ''|\#*) continue ;;
+    esac
+    export "$key=$value"
+done < /etc/web.env
 
 # --------------------------------------------------------------------------
 # database
