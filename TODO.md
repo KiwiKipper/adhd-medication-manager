@@ -79,6 +79,14 @@ remaining v1 work.
       Formulary, and update the seed migration
       ([0004_seed_pk_components.py](web/backend/tracker/migrations/0004_seed_pk_components.py))
       to match.
+- [ ] **Reconcile the two on-time/late classifiers.** Found during the live
+      provision test: one dose logged at 09:55 against an 08:00 schedule came
+      back from `POST /api/doses/` as `"status": "on-time"`, while
+      `/api/adherence/` classified the same day `"status": "late",
+      "minutes_late": 115`. web and pk are each deciding this separately and
+      disagreeing, so Today and History will contradict each other on screen.
+      Decide which one owns the rule — pk is the better home, since it
+      already has the thresholds — and have the other defer to it.
 - [ ] **Do not present modelled output as measurement.** The curve is a
       Bateman-model prediction; make sure the UI copy says so wherever a curve
       or a milestone time is shown.
@@ -134,21 +142,22 @@ remaining v1 work.
       reads first.
 - [x] **Add `.ua/` to `.gitignore`** (or delete it). Done — the directory is
       gone from the working tree and `git status` is clean.
-- [ ] **Verify a clean `vagrant destroy && vagrant up`** brings all three VMs up
-      green, end to end, on a fresh checkout. Green is not currently proof of
-      much: web provisions to a no-op, so check the services, not the exit
-      code.
-- [ ] **Document the interim host-side dev setup** (in the README, once
-      written). Until web.sh exists, `vagrant up` gives working db and pk VMs
-      and the web tier runs on the host against them — which also sidesteps
-      the Python 3.6 problem entirely. The defaults already point the right
-      way (`DB_HOST=192.168.56.10`, `PK_SERVICE_URL=http://192.168.56.11:8001`,
-      `http://localhost:5173` in `CORS_ALLOWED_ORIGINS`). The one thing that
-      is not defaulted is `DB_PASSWORD` — it defaults to empty, while
-      [provisions/db.sh](provisions/db.sh) sets it to `password`. So from
-      `web/backend/`: set `DB_PASSWORD`, run `manage.py migrate` (the VM's
-      database is empty — this is also what runs the medication seed
-      migrations), then `runserver`; and `npm run dev` in `web/frontend/`.
+- [~] **Verify a clean `vagrant destroy && vagrant up`.** Partly done — db
+      and web were both destroyed and rebuilt from scratch and come up green,
+      and the full path was exercised from the host afterwards: register,
+      select a medication, log a dose, then `/timeline/` and `/adherence/`
+      returning real pk output. pk itself was not rebuilt, so a genuinely
+      clean three-VM run from a fresh checkout is still unproven.
+- [ ] **Document both ways to run it** (in the README, once written). The VMs
+      now serve the app at `http://localhost:8000` after `vagrant up` — that
+      host port must stay 8000, since [api.js:6](web/frontend/src/api.js#L6)
+      hardcodes it. The host-side alternative still works and is faster to
+      iterate on: db and pk are reachable directly on the host-only network,
+      and the settings defaults already point at them. The only thing not
+      defaulted is `DB_PASSWORD` (empty by default,
+      [provisions/db.sh](provisions/db.sh) sets it to `password`); after that
+      it is `manage.py migrate` then `runserver` in `web/backend/`, and
+      `npm run dev` in `web/frontend/`.
 - [ ] **Delete the stray `ig` file.** There is a tracked file named `ig` at
       the repo root containing what looks like an aborted `.gitignore`
       (`.venv/`, `__pycache__/`, `node_modules/`, `dist/`). Its useful lines
