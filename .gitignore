@@ -4,3 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Vagrant local machine state (VM ids, per-machine scratch) -- specific to
+# whoever ran `vagrant up`, never shared.
+.vagrant/
