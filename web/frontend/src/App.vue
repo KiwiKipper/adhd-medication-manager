@@ -23,6 +23,6 @@ const route = useRoute()
 
 .app-main.with-sidebar {
   margin-left: var(--sidebar-width, 240px);
-  padding: 32px;
+  padding: var(--page-padding, 32px);
 }
 </style>

@@ -2,9 +2,10 @@
 // <script setup> is Vue 3 shorthand: anything declared at the top level here
 // (variables, functions, imports) is automatically available to the <template>
 // below, with no separate "export default { data(){...} }" boilerplate needed.
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { catmullRom } from '@/lib/curve.js'
 import { MED_DATA } from '@/lib/placeholderData.js'
+import { fetchMyMedication, selectMedication } from '@/api.js'
 
 // The design mock shows a static "methylphenidate-class stimulant" subtitle
 // under every medication, which is only correct for 3 of the 5 — Dexamfetamine
@@ -20,8 +21,33 @@ const DRUG_CLASS_LABELS = {
 }
 
 // `ref()` wraps a value so Vue can detect changes to it and re-render the
-// template automatically. Starts on the first medication, same as the design mock.
+// template automatically. Starts on the first medication, same as the design
+// mock, until onMounted below finds out which one (if any) is actually active.
 const selectedId = ref(MED_DATA[0].id)
+const saving = ref(false)
+const saveError = ref('')
+
+// Clicking a row both previews it here and sets it as the active medication —
+// there's no separate "confirm" step in the design mock, a click does both.
+async function selectMed(id) {
+  const previous = selectedId.value
+  selectedId.value = id
+  saveError.value = ''
+  saving.value = true
+  try {
+    await selectMedication(id)
+  } catch {
+    selectedId.value = previous
+    saveError.value = 'Could not save your selection. Try again.'
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(async () => {
+  const { medication } = await fetchMyMedication()
+  if (medication) selectedId.value = medication.id
+})
 
 // Looked up whenever `selectedId` changes; `computed()` caches the result and
 // only recalculates when something it reads (selectedId, MED_DATA) changes.
@@ -64,7 +90,8 @@ const selectedSparkPath = computed(() => sparkPath(selectedMed.value.shape, 120,
         class="med-row"
         :class="{ active: m.id === selectedId }"
         :aria-pressed="m.id === selectedId"
-        @click="selectedId = m.id"
+        :disabled="saving"
+        @click="selectMed(m.id)"
       >
         <div class="med-row-name">{{ m.name }}</div>
         <div class="med-row-blurb">{{ m.blurb }}</div>
@@ -77,6 +104,8 @@ const selectedSparkPath = computed(() => sparkPath(selectedMed.value.shape, 120,
         <div class="med-name">{{ selectedMed.name }}</div>
         <div class="med-class">{{ selectedDrugClass }}</div>
       </div>
+
+      <p v-if="saveError" class="med-error" role="alert">{{ saveError }}</p>
 
       <p class="med-desc">{{ selectedMed.longDesc }}</p>
 
@@ -137,6 +166,11 @@ const selectedSparkPath = computed(() => sparkPath(selectedMed.value.shape, 120,
   background: var(--accent-soft);
 }
 
+.med-row:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .med-row-name {
   font: 600 15px 'Inter', sans-serif;
   color: var(--fg);
@@ -174,6 +208,15 @@ const selectedSparkPath = computed(() => sparkPath(selectedMed.value.shape, 120,
   margin: 22px 0 0;
   font: 400 16px/1.65 'Inter', sans-serif;
   color: var(--fg);
+}
+
+.med-error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: var(--flag-soft);
+  color: var(--flag);
+  font: 500 13px/1.4 'Inter', sans-serif;
 }
 
 .spark-block {

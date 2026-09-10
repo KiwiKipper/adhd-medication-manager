@@ -115,6 +115,11 @@ export async function fetchDoses(date) {
   return response.data
 }
 
+// Delete today's logged dose, resetting the day back to "not taken yet"
+export async function deleteTodayDose() {
+  await api.delete("/api/doses/")
+}
+
 // Fetch the current user's notes, newest first
 export async function fetchNotes() {
   const response = await api.get("/api/notes/")

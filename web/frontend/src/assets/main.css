@@ -10,6 +10,10 @@
   --accent-contrast: oklch(99% 0 0);
   --flag: oklch(52% 0.13 45);
   --flag-soft: oklch(93% 0.05 50);
+  /* Padding App.vue's .app-main puts around every signed-in page. Shared as a
+     token because pages that center content against the full viewport
+     height (e.g. TodayTakeDose's button) need to know and compensate for it. */
+  --page-padding: 32px;
 }
 
 * {

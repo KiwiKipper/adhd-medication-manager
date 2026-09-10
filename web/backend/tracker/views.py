@@ -33,9 +33,14 @@ def my_medication_view(request) -> Response:
     return Response({"medication": MedicationSerializer(medication).data})
 
 
-@api_view(["GET", "POST"])
+@api_view(["GET", "POST", "DELETE"])
 @permission_classes([IsAuthenticated])
 def doses_view(request) -> Response:
+    if request.method == "DELETE":
+        # Resets today's log so the user can re-take their dose from scratch.
+        Dose.objects.filter(user=request.user, date=timezone.localdate()).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     if request.method == "POST":
         medication_id = request.data.get("medication")
         if medication_id:
