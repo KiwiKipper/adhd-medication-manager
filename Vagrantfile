@@ -1,28 +1,30 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
-# Three nodes on a host-only private network. Host-only addressing must stay
-# inside 192.168.56.0/21 -- VirtualBox refuses other ranges by default.
+# Three nodes on a host-only private network, one per tier: db, backend
+# (the Django API), frontend (nginx + the built Vue SPA). Host-only
+# addressing must stay inside 192.168.56.0/21 -- VirtualBox refuses other
+# ranges by default.
 #
-# The host itself sits on this network as 192.168.56.1, so postgres on db and
-# the pk service are reachable from the host directly, with no port
+# The host itself sits on this network as 192.168.56.1, so postgres on db
+# and the API on backend are reachable from the host directly, with no port
 # forwarding. The forwarded ports below exist only for the browser-facing
-# entry point.
+# entry point (and one debug port straight at the API).
 #
-# Box choice is per node, and both boxes are pinned by what Django 6.1
-# (web/requirements.txt) demands at each end:
+# All three nodes run bento/ubuntu-24.04 (Python 3.12, Django 6.1's
+# requirement) with one exception worth naming: there used to be a fourth
+# node here, pk, pinned to 18.04 because it ran a second, older Django. pk's
+# maths is now an in-process package inside backend/ -- see backend/pk/ --
+# so that node, its box, and its separate Django are gone, not just
+# relocated.
 #
-#   web -- 24.04. Django 6.1 needs Python 3.12; 18.04 ships 3.6. That
-#          mismatch is why there was never a working web.sh.
-#   db  -- 24.04. Django 6.1 needs PostgreSQL 15 or later, and bionic's
-#          newest is 10.23 -- `migrate` fails outright with
-#          NotSupportedError. Noble ships 16.
-#   pk  -- 18.04. Nothing forces this one: pk talks to no database, and it
-#          pins Django 3.2 precisely because 3.6 is what this box ships.
-#          Left where it is, working, rather than upgraded for symmetry.
-#
-# Bionic is past end of life but is still served from archive.ubuntu.com, so
-# `apt-get update` on the pk node still resolves.
+# Defined in boot order, which matters here: backend's provision waits for
+# postgres before running migrations, and frontend's waits for the backend
+# API before its health check, so each node coming up after the one it
+# depends on means a plain `vagrant up` mostly just works without every
+# script re-polling from a cold start. Each script still waits rather than
+# assumes, because `vagrant up <single-node>` and `vagrant provision
+# <single-node>` both skip that ordering entirely.
 
 Vagrant.configure("2") do |config|
 
@@ -36,29 +38,33 @@ Vagrant.configure("2") do |config|
       :forwarded => [],
     },
     {
-      :hostname => "pk",
-      :box => "bento/ubuntu-18.04",
+      :hostname => "backend",
+      :box => "bento/ubuntu-24.04",
       :ip => "192.168.56.11",
       :ssh_port => 2201,
       :memory => 1024,
-      # Not needed by the app -- web calls pk over the private network. Here
-      # so pk's endpoints can be poked from the host while debugging.
-      :forwarded => [{ :guest => 8001, :host => 8001 }],
+      # Not needed by the app -- frontend's nginx reaches this VM over the
+      # private network. Here so the API can be curled from the host while
+      # debugging, without going through nginx on the frontend VM.
+      :forwarded => [{ :guest => 8000, :host => 8001 }],
     },
     {
-      :hostname => "web",
+      :hostname => "frontend",
       :box => "bento/ubuntu-24.04",
       :ip => "192.168.56.12",
       :ssh_port => 2202,
-      # 1024 is enough to run the app but not to build it: `npm ci` plus a
-      # vite production build is the memory high-water mark of the whole
+      # 1024 is enough to run nginx but not to build the SPA: `npm ci` plus
+      # a vite production build is the memory high-water mark of the whole
       # project and gets OOM-killed on 1GB.
       :memory => 2048,
-      # The entry point. nginx on the guest serves the SPA and the API from
-      # one origin on 8000; the host port must also be 8000, because
-      # web/frontend/src/api.js has a hardcoded baseURL of
-      # http://localhost:8000 and the browser resolves that against the host.
-      :forwarded => [{ :guest => 8000, :host => 8000 }],
+      # The entry point. nginx on the guest serves the SPA and proxies the
+      # API to the backend VM, both from port 80. The host port doesn't
+      # have to be 8000 -- frontend/src/api.js's baseURL is the page's own
+      # origin, not a hardcoded host:port -- but 8000 is the conventional
+      # choice and what the README documents; auto_correct below means a
+      # busy host port 8000 shifts rather than failing the whole `vagrant
+      # up`, and the app still works on whatever port it lands on.
+      :forwarded => [{ :guest => 80, :host => 8000 }],
     },
   ]
 
@@ -71,9 +77,9 @@ Vagrant.configure("2") do |config|
 
       machine[:forwarded].each do |port|
         # auto_correct so a host port already in use shifts rather than
-        # failing the whole `vagrant up`. If 8000 gets corrected, the SPA
-        # will not be able to reach its API -- see the note above -- so
-        # watch for the correction warning.
+        # failing the whole `vagrant up`. Watch for the correction warning
+        # if you want the app specifically at :8000 -- it still works on
+        # whatever port it lands on either way.
         node.vm.network "forwarded_port",
                         guest: port[:guest], host: port[:host], auto_correct: true
       end
