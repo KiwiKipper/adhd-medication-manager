@@ -1,8 +1,8 @@
 <script setup>
 // Shown on the Today page once a dose has been logged for the day. Renders
-// the release timeline, the notes list, and the last-10-days glance — all
-// from real data passed in / fetched here, replacing the old
-// lib/placeholderData.js-backed version.
+// the release timeline, today's notes, and the last-10-days glance — all
+// from real data passed in or fetched here. The full note history, and
+// filing a note against an earlier day, live on the Notes page.
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { fetchNotes, addNote as addNoteApi, logDose, fetchTimeline } from '@/api.js'
 import { buildTimelineSteps, timelineSpanMinutes, elapsedMinutes, formatClockTime, formatLongDate } from '@/lib/timeline.js'
@@ -106,9 +106,11 @@ async function saveEdit() {
 }
 
 // --- Notes -----------------------------------------------------------------
+// Just today's: a note carries the day it is *about*, so this sidebar asks
+// for that day rather than filtering the user's whole history client-side.
 const notes = ref([])
 onMounted(async () => {
-  notes.value = await fetchNotes()
+  notes.value = await fetchNotes('today')
 })
 const noteInput = ref('')
 
@@ -190,6 +192,14 @@ function resetLog() {
             </div>
           </div>
         </div>
+
+        <!-- Same honesty line the Curve page carries: these times are model
+             output positioned against the dose, not observations of the
+             person reading them. -->
+        <p class="timeline-caption">
+          Milestone times are modelled from published parameters for this medication — a
+          prediction of an average response, not a measurement of you.
+        </p>
       </div>
     </div>
 
@@ -205,7 +215,10 @@ function resetLog() {
       </div>
 
       <div class="notes-section">
-        <div class="section-title">Notes</div>
+        <div class="section-title-row">
+          <span class="section-title">Notes</span>
+          <router-link to="/notes" class="section-link">All notes</router-link>
+        </div>
         <div class="notes-list">
           <div v-for="note in notes" :key="note.id" class="note-row">
             <span class="note-time">{{ formatClockTime(new Date(note.created_at)) }}</span>
@@ -359,6 +372,14 @@ function resetLog() {
   color: var(--fg-muted);
 }
 
+.timeline-caption {
+  flex: none;
+  margin: 12px 0 0;
+  max-width: 620px;
+  font: 400 12.5px/1.5 'Inter', sans-serif;
+  color: var(--fg-muted);
+}
+
 /* The time axis everything inside is positioned against. Its height comes
    from an inline style (span in minutes x px-per-minute), so a row's `top`
    in px is simply its offset in minutes. */
@@ -507,6 +528,20 @@ function resetLog() {
 .section-title {
   font: 600 14px 'Inter', sans-serif;
   color: var(--fg);
+  margin-bottom: 12px;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-link {
+  font: 500 12px 'Inter', sans-serif;
+  color: var(--accent);
+  text-decoration: none;
   margin-bottom: 12px;
 }
 

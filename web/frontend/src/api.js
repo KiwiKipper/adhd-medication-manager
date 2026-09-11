@@ -91,7 +91,10 @@ export async function fetchMedications() {
   return response.data
 }
 
-// Fetch the current user's actively-selected medication, or { medication: null } if none is set
+// Fetch the current user's actively-selected medication and the daily time
+// it's scheduled for: { medication, scheduled_time } -- both null if nothing
+// has been selected yet. scheduled_time is "HH:MM" and is what pk classifies
+// each dose against as on-time or late.
 export async function fetchMyMedication() {
   const response = await api.get("/api/my-medication/")
   return response.data
@@ -100,6 +103,13 @@ export async function fetchMyMedication() {
 // Set the current user's active medication to the given catalogue id (e.g. "concerta")
 export async function selectMedication(medicationId) {
   const response = await api.post("/api/my-medication/", { medication: medicationId })
+  return response.data
+}
+
+// Change the daily time the current selection is scheduled for, without
+// touching which medication it is. "HH:MM", 24-hour.
+export async function setScheduledTime(scheduledTime) {
+  const response = await api.post("/api/my-medication/", { scheduled_time: scheduledTime })
   return response.data
 }
 
@@ -120,25 +130,37 @@ export async function deleteTodayDose() {
   await api.delete("/api/doses/")
 }
 
-// Fetch the current user's notes, newest first
-export async function fetchNotes() {
-  const response = await api.get("/api/notes/")
+// Fetch the current user's notes, newest day first. Pass "today", or a
+// "YYYY-MM-DD" date, for just that day's notes; omit it for all of them.
+export async function fetchNotes(date) {
+  const response = await api.get("/api/notes/", { params: date ? { date } : undefined })
   return response.data
 }
 
-// Create a new note for the current user
-export async function addNote(text) {
-  const response = await api.post("/api/notes/", { text })
+// Create a note for the current user. `date` is the day the note is *about*
+// (defaults to today server-side, which is what the Today page wants), and
+// `flagged` marks it as something to stand out -- a bad reaction, a skipped
+// dose, something to raise with a prescriber.
+export async function addNote(text, { date, flagged } = {}) {
+  const payload = { text }
+  if (date) payload.date = date
+  if (flagged !== undefined) payload.flagged = flagged
+  const response = await api.post("/api/notes/", payload)
   return response.data
 }
 
 // Fetch today's release-curve timeline for the current user's active
 // medication -- computed by the pk service, not here. Requires a dose to
 // already be logged for today (pass an ISO-8601 timestamp with a UTC offset
-// as `takenAt` to ask about a different moment instead).
+// as `takenAt` to ask about a different moment instead), and optionally a
+// catalogue id as `medicationId` to preview a medication the user hasn't
+// selected, which is how the Medications page draws its release shape.
 // Returns { taken_at, events: [{ at, label }], curve: [{ t_h, level }], ... }
-export async function fetchTimeline(takenAt) {
-  const response = await api.get("/api/timeline/", { params: takenAt ? { taken_at: takenAt } : undefined })
+export async function fetchTimeline(takenAt, medicationId) {
+  const params = {}
+  if (takenAt) params.taken_at = takenAt
+  if (medicationId) params.medication = medicationId
+  const response = await api.get("/api/timeline/", { params })
   return response.data
 }
 

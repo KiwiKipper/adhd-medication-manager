@@ -9,6 +9,7 @@ const router = useRouter()
 const navItems = [
   { label: 'Today', to: '/today' },
   { label: 'Day curve', to: '/curve' },
+  { label: 'Notes', to: '/notes' },
   { label: 'Medications', to: '/medications' },
   { label: 'History', to: '/history' },
 ]
