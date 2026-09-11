@@ -1,6 +1,6 @@
 // Builds the "release timeline" shown on the Today page, anchored to the
 // real time a dose was taken. The milestones themselves ("First peak",
-// "Second release", ...) come from the pk service via fetchTimeline() in
+// "Second release", ...) come from the pk module via fetchTimeline() in
 // api.js -- this file only turns that response into what the page renders
 // (clock strings, past/future state, pixel offsets), matching whatever
 // events pk actually returned rather than a fixed medication-agnostic list.

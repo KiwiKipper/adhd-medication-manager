@@ -1,6 +1,6 @@
 <script setup>
-// Adherence classification (on_time/late/missed), the streak and the
-// adherence percentage are all computed by the pk service -- see
+// Adherence classification (on-time/late/missed), the streak and the
+// adherence percentage are all computed by the pk module -- see
 // fetchAdherence() in api.js -- not here. This view only merges that
 // classification with each day's actual dose time (from fetchDoses(), which
 // pk never sees) and renders it.
@@ -33,10 +33,9 @@ onMounted(async () => {
         date: formatDateLabel(day.date),
         dow: dowLabel(day.date),
         doseTime: dose?.taken_at ? formatClockTime(new Date(dose.taken_at)) : '—',
-        // pk classifies on_time/late/missed; the UI's status pills and
-        // STATUS_LABELS use on-time/late/missed, matching the Dose model's
-        // own status field, so normalise the separator once here.
-        status: day.status.replace('_', '-'),
+        // pk classifies on-time/late/missed using the same spelling as the
+        // Dose model's own status field, so no normalisation is needed here.
+        status: day.status,
       }
     })
 

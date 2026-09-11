@@ -1,28 +1,29 @@
 """Tests for the tracker API under /api/.
 
-The pk service is never contacted: /timeline/ and /adherence/ are
-passthroughs, so what matters here is the payload web *builds* from the
-database and how it behaves when pk misbehaves. Both are exercised by
-patching tracker.views' pk callables, which is where services.py's functions
-are looked up.
+Most tests here patch tracker.views.compute_timeline/compute_adherence, so
+what they check is the payload this app *builds* from the database --
+today's dose, the medication's components, the day-by-day adherence
+window -- independent of the curve/adherence maths itself. That maths is
+pk (backend/pk/), a plain Python package called in-process rather than a
+separate service; its own tests live in backend/pk/tests. TimelineEndToEndTests
+below calls the real pk module with no mocking, absorbing the cases that
+used to live in pk's own endpoint tests back when pk was an HTTP service.
 
 Run from backend/ with:
 
     DB_ENGINE=sqlite py manage.py test
 
-No VMs, no postgres and no running pk required.
+No VMs and no postgres required.
 """
 
 import datetime
 from unittest.mock import patch
 
-import requests
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 
 from .models import Dose, Medication, Note, UserMedication
-from .services import PkServiceError, _call_pk
 
 COMPONENTS = [{"fraction": 1.0, "delay_h": 0.0, "ka": 1.2, "half_life_h": 3.5}]
 
@@ -205,7 +206,7 @@ class ScheduledTimeTests(ApiTestCase):
     def test_the_scheduled_time_is_what_adherence_sends_pk(self):
         # The whole point of the picker: pk classifies against this value.
         self.select(scheduled_time=datetime.time(12, 30))
-        with patch("tracker.views.call_pk_adherence", return_value={"days": []}) as pk:
+        with patch("tracker.views.compute_adherence", return_value={"days": []}) as pk:
             self.client.get("/api/adherence/", {"days": 1})
         sent = pk.call_args.args[0]
         self.assertEqual(sent[0]["scheduled"], "12:30")
@@ -218,7 +219,15 @@ class DoseLoggingTests(ApiTestCase):
         self.select()
 
     def test_logging_a_dose_uses_the_active_medication(self):
-        response = self.client.post("/api/doses/", {}, content_type="application/json")
+        # select()'s default schedule is 08:00; an explicit on-time taken_at
+        # keeps this test's expected status independent of what time of day
+        # it actually runs (classify_dose now decides that for real).
+        taken_at = timezone.make_aware(
+            datetime.datetime.combine(timezone.localdate(), datetime.time(8, 5))
+        )
+        response = self.client.post(
+            "/api/doses/", {"taken_at": taken_at.isoformat()}, content_type="application/json",
+        )
         self.assertEqual(response.status_code, 201)
 
         body = response.json()
@@ -227,6 +236,36 @@ class DoseLoggingTests(ApiTestCase):
         self.assertEqual(body["status"], Dose.Status.ON_TIME)
         self.assertEqual(body["date"], timezone.localdate().isoformat())
         self.assertIsNotNone(body["taken_at"])
+
+    def test_logging_late_is_classified_late(self):
+        # 60 minutes past the 08:00 schedule, comfortably past pk's
+        # 30-minute LATE_AFTER_MINUTES threshold.
+        taken_at = timezone.make_aware(
+            datetime.datetime.combine(timezone.localdate(), datetime.time(9, 0))
+        )
+        response = self.client.post(
+            "/api/doses/", {"taken_at": taken_at.isoformat()}, content_type="application/json",
+        )
+        self.assertEqual(response.json()["status"], "late")
+
+    def test_doses_and_adherence_agree_on_the_same_dose(self):
+        # The exact scenario TODO.md section 3 flagged: a dose logged at
+        # 09:55 against an 08:00 schedule used to come back "on-time" from
+        # POST /doses/ while /adherence/ classified it "late". Both now go
+        # through pk.model.classify, so they can no longer disagree.
+        taken_at = timezone.make_aware(
+            datetime.datetime.combine(timezone.localdate(), datetime.time(9, 55))
+        )
+        dose_status = self.client.post(
+            "/api/doses/", {"taken_at": taken_at.isoformat()}, content_type="application/json",
+        ).json()["status"]
+
+        adherence = self.client.get("/api/adherence/", {"days": 1}).json()
+        today = timezone.localdate().isoformat()
+        adherence_status = next(day["status"] for day in adherence["days"] if day["date"] == today)
+
+        self.assertEqual(dose_status, "late")
+        self.assertEqual(dose_status, adherence_status)
 
     def test_logging_without_an_active_medication_is_400(self):
         UserMedication.objects.all().delete()
@@ -313,28 +352,31 @@ class TimelineTests(ApiTestCase):
         Dose.objects.create(user=self.user, medication=self.medication,
                             date=timezone.localdate(), taken_at=taken_at)
 
-        with patch("tracker.views.call_pk_timeline", return_value=self.PK_RESULT) as pk:
+        with patch("tracker.views.compute_timeline", return_value=self.PK_RESULT) as pk:
             response = self.client.get("/api/timeline/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), self.PK_RESULT)
-        pk.assert_called_once_with(taken_at.isoformat(), COMPONENTS)
+        # The view converts to local time before calling compute_timeline, so
+        # this compares as an aware datetime (equal by instant) rather than
+        # the UTC-offset isoformat() string taken_at itself would produce.
+        pk.assert_called_once_with(timezone.localtime(taken_at), COMPONENTS)
 
     def test_explicit_taken_at_overrides_the_logged_dose(self):
         self.select()
-        with patch("tracker.views.call_pk_timeline", return_value=self.PK_RESULT) as pk:
+        with patch("tracker.views.compute_timeline", return_value=self.PK_RESULT) as pk:
             self.client.get("/api/timeline/", {"taken_at": "2026-09-10T08:00:00+12:00"})
         pk.assert_called_once_with("2026-09-10T08:00:00+12:00", COMPONENTS)
 
     def test_no_active_medication_is_400_without_calling_pk(self):
-        with patch("tracker.views.call_pk_timeline") as pk:
+        with patch("tracker.views.compute_timeline") as pk:
             response = self.client.get("/api/timeline/")
         self.assertEqual(response.status_code, 400)
         pk.assert_not_called()
 
     def test_no_dose_logged_today_is_400_without_calling_pk(self):
         self.select()
-        with patch("tracker.views.call_pk_timeline") as pk:
+        with patch("tracker.views.compute_timeline") as pk:
             response = self.client.get("/api/timeline/")
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json())
@@ -350,7 +392,7 @@ class TimelineTests(ApiTestCase):
         )
         self.select()
 
-        with patch("tracker.views.call_pk_timeline", return_value=self.PK_RESULT) as pk:
+        with patch("tracker.views.compute_timeline", return_value=self.PK_RESULT) as pk:
             response = self.client.get("/api/timeline/", {
                 "medication": other.id, "taken_at": "2026-09-10T08:00:00+12:00",
             })
@@ -359,7 +401,7 @@ class TimelineTests(ApiTestCase):
         pk.assert_called_once_with("2026-09-10T08:00:00+12:00", other.pk_components)
 
     def test_previewing_needs_no_active_medication(self):
-        with patch("tracker.views.call_pk_timeline", return_value=self.PK_RESULT) as pk:
+        with patch("tracker.views.compute_timeline", return_value=self.PK_RESULT) as pk:
             response = self.client.get("/api/timeline/", {
                 "medication": self.medication.id, "taken_at": "2026-09-10T08:00:00+12:00",
             })
@@ -368,7 +410,7 @@ class TimelineTests(ApiTestCase):
 
     def test_unknown_medication_query_param_is_404_without_calling_pk(self):
         self.select()
-        with patch("tracker.views.call_pk_timeline") as pk:
+        with patch("tracker.views.compute_timeline") as pk:
             response = self.client.get("/api/timeline/", {"medication": "nope"})
         self.assertEqual(response.status_code, 404)
         pk.assert_not_called()
@@ -378,7 +420,7 @@ class TimelineTests(ApiTestCase):
         self.select(medication=bare)
         Dose.objects.create(user=self.user, medication=bare,
                             date=timezone.localdate(), taken_at=timezone.now())
-        with patch("tracker.views.call_pk_timeline") as pk:
+        with patch("tracker.views.compute_timeline") as pk:
             response = self.client.get("/api/timeline/")
         self.assertEqual(response.status_code, 400)
         self.assertIn("Unknown", response.json()["error"])
@@ -389,7 +431,7 @@ class AdherencePayloadTests(ApiTestCase):
     """web's job here is assembling the day-by-day payload; pk classifies it."""
 
     def _adherence(self, **params):
-        with patch("tracker.views.call_pk_adherence", return_value={"adherence": 1.0}) as pk:
+        with patch("tracker.views.compute_adherence", return_value={"adherence": 1.0}) as pk:
             response = self.client.get("/api/adherence/", params)
         return response, pk
 
@@ -439,13 +481,13 @@ class AdherencePayloadTests(ApiTestCase):
 
     def test_non_integer_days_is_400(self):
         self.select()
-        with patch("tracker.views.call_pk_adherence") as pk:
+        with patch("tracker.views.compute_adherence") as pk:
             response = self.client.get("/api/adherence/", {"days": "many"})
         self.assertEqual(response.status_code, 400)
         pk.assert_not_called()
 
     def test_no_active_medication_is_400(self):
-        with patch("tracker.views.call_pk_adherence") as pk:
+        with patch("tracker.views.compute_adherence") as pk:
             response = self.client.get("/api/adherence/")
         self.assertEqual(response.status_code, 400)
         pk.assert_not_called()
@@ -458,97 +500,81 @@ class AdherencePayloadTests(ApiTestCase):
         self.assertIsNone(pk.call_args.args[0][0]["taken_at"])
 
 
-class PkFailureTests(ApiTestCase):
-    """A dead or slow pk VM must degrade to a readable error, never a 500."""
 
-    def setUp(self):
-        super().setUp()
-        self.select()
-        Dose.objects.create(user=self.user, medication=self.medication,
-                            date=timezone.localdate(), taken_at=timezone.now())
+class TimelineEndToEndTests(ApiTestCase):
+    """/api/timeline/ against the real pk module -- nothing mocked.
 
-    def test_timeline_returns_502_when_pk_is_unreachable(self):
-        error = PkServiceError("pk service is unreachable: refused", status_code=502)
-        with patch("tracker.views.call_pk_timeline", side_effect=error):
-            response = self.client.get("/api/timeline/")
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("unreachable", response.json()["error"])
+    Absorbed from pk's own endpoint tests, back when pk was a separate HTTP
+    service with its own Django test client hitting /timeline directly.
+    These now go through the real tracker -> pk call the app actually makes,
+    via the ?medication=/&taken_at= preview path so no Dose row is needed.
+    """
 
-    def test_adherence_returns_502_when_pk_is_unreachable(self):
-        error = PkServiceError("pk service is unreachable: refused", status_code=502)
-        with patch("tracker.views.call_pk_adherence", side_effect=error):
-            response = self.client.get("/api/adherence/")
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("error", response.json())
-
-    def test_timeline_passes_through_pks_own_400(self):
-        error = PkServiceError("components must be a non-empty list", status_code=400)
-        with patch("tracker.views.call_pk_timeline", side_effect=error):
-            response = self.client.get("/api/timeline/")
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "components must be a non-empty list")
-
-
-class _FakeResponse:
-    """Enough of a requests.Response for services._call_pk. `body=None` stands
-    in for a body that isn't JSON at all."""
-
-    def __init__(self, status_code, body):
-        self.status_code = status_code
-        self._body = body
-        self.text = "" if body is None else str(body)
-
-    def json(self):
-        if self._body is None:
-            raise ValueError("not JSON")
-        return self._body
-
-
-class PkServiceTests(TestCase):
-    """services._call_pk turns every transport outcome into a PkServiceError
-    carrying the status the view should return."""
-
-    def _call(self):
-        return _call_pk("/timeline", {"taken_at": "x", "components": []})
-
-    def _assert_raises(self, expected_status, expected_text, **patch_kwargs):
-        with patch("tracker.services.requests.post", **patch_kwargs):
-            with self.assertRaises(PkServiceError) as caught:
-                self._call()
-        self.assertEqual(caught.exception.status_code, expected_status)
-        self.assertIn(expected_text, caught.exception.message)
-
-    def test_timeout_names_the_timeout_setting(self):
-        self._assert_raises(502, "did not respond", side_effect=requests.Timeout())
-
-    def test_connection_error_is_502(self):
-        self._assert_raises(
-            502, "unreachable", side_effect=requests.ConnectionError("refused")
+    def _timeline(self, components, taken_at="2026-09-06T08:00:00+12:00"):
+        medication = Medication.objects.create(
+            id="preview-med", name="Preview", pk_components=components,
+        )
+        return self.client.get(
+            "/api/timeline/", {"medication": medication.id, "taken_at": taken_at},
         )
 
-    def test_pk_400_is_passed_through_with_its_message(self):
-        response = _FakeResponse(400, {"error": "components must be a non-empty list"})
-        self._assert_raises(400, "non-empty list", return_value=response)
+    def test_events_are_chronological_and_carry_input_offset(self):
+        response = self._timeline([
+            {"fraction": 0.22, "delay_h": 0.0, "ka": 1.00, "ke": 0.277},
+            {"fraction": 0.78, "delay_h": 3.0, "ka": 0.50, "ke": 0.277},
+        ])
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
 
-    def test_pk_500_becomes_a_502(self):
-        self._assert_raises(502, "unexpected status 500",
-                            return_value=_FakeResponse(500, {}))
+        self.assertEqual(body["computed_by"], "backend.pk")
+        self.assertEqual(body["taken_at"], "2026-09-06T08:00:00+12:00")
 
-    def test_non_json_body_is_502(self):
-        self._assert_raises(502, "non-JSON", return_value=_FakeResponse(200, None))
+        events = body["events"]
+        self.assertGreater(len(events), 0)
+        timestamps = [event["at"] for event in events]
+        self.assertEqual(timestamps, sorted(timestamps))
+        for event in events:
+            self.assertTrue(event["at"].endswith("+12:00"))
 
-    def test_success_returns_the_parsed_body(self):
-        with patch("tracker.services.requests.post",
-                   return_value=_FakeResponse(200, {"events": []})):
-            self.assertEqual(self._call(), {"events": []})
+        labels = [event["label"] for event in events]
+        self.assertEqual(labels[0], "Taken")
+        self.assertIn("Second release", labels)
 
-    def test_the_request_uses_the_configured_url_and_timeout(self):
-        with self.settings(PK_SERVICE_URL="http://pk.test:8001", PK_SERVICE_TIMEOUT=2.5):
-            with patch("tracker.services.requests.post",
-                       return_value=_FakeResponse(200, {})) as post:
-                self._call()
-        self.assertEqual(post.call_args.args[0], "http://pk.test:8001/timeline")
-        self.assertEqual(post.call_args.kwargs["timeout"], 2.5)
+    def test_negative_offset_is_preserved(self):
+        response = self._timeline(
+            [{"fraction": 1.0, "delay_h": 0.0, "ka": 1.0, "ke": 0.277}],
+            taken_at="2026-09-06T08:00:00-05:00",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["taken_at"].endswith("-05:00"))
+        for event in body["events"]:
+            self.assertTrue(event["at"].endswith("-05:00"))
+
+    def test_single_component_medication_has_no_second_release_event(self):
+        response = self._timeline([{"fraction": 1.0, "delay_h": 0.0, "ka": 1.0, "ke": 0.277}])
+        self.assertEqual(response.status_code, 200)
+        labels = [event["label"] for event in response.json()["events"]]
+        self.assertNotIn("Second release", labels)
+
+    def test_missing_timezone_offset_is_400(self):
+        response = self._timeline(
+            [{"fraction": 1.0, "delay_h": 0.0, "ka": 1.0, "ke": 0.277}],
+            taken_at="2026-09-06T08:00:00",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_negative_rate_constant_is_400(self):
+        response = self._timeline([{"fraction": 1.0, "delay_h": 0.0, "ka": -1.0, "ke": 0.277}])
+        self.assertEqual(response.status_code, 400)
+
+    def test_zero_rate_constant_is_400(self):
+        response = self._timeline([{"fraction": 1.0, "delay_h": 0.0, "ka": 1.0, "ke": 0.0}])
+        self.assertEqual(response.status_code, 400)
+
+    def test_non_numeric_parameter_is_400(self):
+        response = self._timeline([{"fraction": 1.0, "delay_h": 0.0, "ka": "fast", "ke": 0.277}])
+        self.assertEqual(response.status_code, 400)
 
 
 class NoteTests(ApiTestCase):

@@ -1,71 +1,69 @@
-"""The only place web talks to the pk service.
+"""The only place tracker touches the pk maths.
 
-web never computes a release curve or classifies a dose itself -- it fetches
-parameters from the database and posts them to pk, then passes back whatever
-pk returns. Views should go through call_pk_timeline / call_pk_adherence
-rather than calling `requests` directly, so every pk call is validated and
-turned into a readable error the same way.
+pk (backend/pk/) is a plain Python package -- no Django import, no I/O -- so
+this is an in-process call, not a network one. Views should go through
+compute_timeline / compute_adherence / classify_dose rather than importing
+pk.model directly, so every call is validated and turned into a readable
+error the same way, and so there is exactly one place that decides
+on-time/late (see classify_dose).
 """
 
-import requests
-from django.conf import settings
+from django.utils import timezone
+
+from pk import config, model
+
+# Included on every timeline/adherence response, so it's visible on the wire
+# that these numbers are computed, not measured, and which version of the
+# maths produced them -- the same fields pk's old HTTP responses carried.
+IDENTITY = {"computed_by": "backend.pk", "model_version": config.MODEL_VERSION}
 
 
-class PkServiceError(Exception):
-    """Raised when pk can't be reached, times out, or rejects the request.
-
-    `status_code` is what the view should return to the browser: 400 when pk
-    validly rejected the input (its own message is preserved), 502 when pk
-    itself could not be reached or returned something unexpected -- a web
-    problem, not a "you sent bad data" problem.
-    """
-
-    def __init__(self, message, status_code=502):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
+class PkInputError(ValueError):
+    """Bad parameters or a bad timestamp; the view turns this into a 400."""
 
 
-def _call_pk(path, payload):
-    url = f"{settings.PK_SERVICE_URL}{path}"
+def compute_timeline(taken_at, components):
+    """taken_at: an aware datetime, or an ISO-8601 string carrying a UTC
+    offset. components: a Medication's pk_components list, unmodified."""
     try:
-        response = requests.post(url, json=payload, timeout=settings.PK_SERVICE_TIMEOUT)
-    except requests.Timeout:
-        # A slow pk is reported separately from a dead one: PK_SERVICE_TIMEOUT
-        # is the knob to turn, and the caller shouldn't have to read a stack
-        # trace to work that out.
-        raise PkServiceError(
-            "pk service did not respond within %ss" % settings.PK_SERVICE_TIMEOUT,
-            status_code=502,
-        )
-    except requests.RequestException as exc:
-        raise PkServiceError("pk service is unreachable: %s" % exc, status_code=502)
+        if isinstance(taken_at, str):
+            taken_at = model.parse_iso_datetime(taken_at)
+        samples, events = model.build_timeline(components)
+    except model.ModelError as exc:
+        raise PkInputError(str(exc))
 
-    if response.status_code == 400:
-        try:
-            detail = response.json().get("error", response.text)
-        except ValueError:
-            detail = response.text
-        raise PkServiceError(detail, status_code=400)
-
-    if response.status_code != 200:
-        raise PkServiceError(
-            "pk service returned unexpected status %s" % response.status_code,
-            status_code=502,
-        )
-
-    try:
-        return response.json()
-    except ValueError:
-        raise PkServiceError("pk service returned a non-JSON response", status_code=502)
+    return {
+        "taken_at": taken_at.isoformat(),
+        "events": model.events_payload(events, taken_at),
+        "curve": model.curve_payload(samples),
+        **IDENTITY,
+    }
 
 
-def call_pk_timeline(taken_at, components):
-    """taken_at: ISO-8601 string with a UTC offset. components: pk_components
-    list straight off a Medication row."""
-    return _call_pk("/timeline", {"taken_at": taken_at, "components": components})
-
-
-def call_pk_adherence(doses):
+def compute_adherence(doses):
     """doses: [{"date", "scheduled", "taken_at"}, ...], taken_at may be None."""
-    return _call_pk("/adherence", {"doses": doses})
+    try:
+        report = model.adherence_report(doses)
+    except model.ModelError as exc:
+        raise PkInputError(str(exc))
+    return {**report, **IDENTITY}
+
+
+def classify_dose(scheduled_time, taken_at):
+    """The on-time/late status for one dose, by the same rule adherence
+    reporting uses -- so POST /doses/ and GET /adherence/ can never
+    disagree about the same dose.
+
+    scheduled_time: a datetime.time (as stored on UserMedication), or None
+    if nothing has been scheduled yet. taken_at: an aware datetime. Returns
+    a tracker.models.Dose.Status value, or ON_TIME when there is no
+    schedule to classify against.
+    """
+    if scheduled_time is None:
+        return model.STATUS_ON_TIME
+
+    local_taken = timezone.localtime(taken_at)
+    scheduled_minutes = scheduled_time.hour * 60 + scheduled_time.minute
+    taken_minutes = local_taken.hour * 60 + local_taken.minute
+    status, _minutes_late = model.classify(scheduled_minutes, taken_minutes)
+    return status

@@ -1,10 +1,12 @@
 """Model-only tests. No HTTP, no Django, no VM required.
 
-Run with:
+Run standalone (stdlib only, no Django install needed) with:
 
-    py -m unittest discover -s tests -t .
+    py -m unittest discover -s pk/tests -t .
 
-(from the pk/ directory).
+(from the backend/ directory). Also picked up by `manage.py test` as part
+of the full suite, since Django's test runner discovers test*.py files
+under the current directory regardless of INSTALLED_APPS.
 """
 
 import math
@@ -13,12 +15,12 @@ import unittest
 from datetime import timedelta
 from os.path import abspath, dirname, join
 
-# Make the pk/ package root (one level up from tests/) importable regardless
-# of the working directory the tests are launched from.
-sys.path.insert(0, abspath(join(dirname(__file__), "..")))
+# Make backend/ (two levels up from tests/) importable regardless of the
+# working directory the tests are launched from, so `from pk import ...`
+# resolves whether this runs standalone or under Django.
+sys.path.insert(0, abspath(join(dirname(__file__), "..", "..")))
 
-import config
-import model
+from pk import config, model
 
 
 def _single(ka, ke, fraction=1.0, delay_h=0.0):

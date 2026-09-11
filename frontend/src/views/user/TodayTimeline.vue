@@ -42,7 +42,7 @@ onUnmounted(() => {
 })
 
 // The release timeline itself -- "Should start to feel it", "First peak",
-// etc -- is computed by the pk service (see api.js's fetchTimeline()), not
+// etc -- is computed by the pk module (see api.js's fetchTimeline()), not
 // here. Refetched whenever the logged taken_at changes (i.e. after editing
 // today's dose), since the whole curve shifts with it.
 const timelineEvents = ref([])

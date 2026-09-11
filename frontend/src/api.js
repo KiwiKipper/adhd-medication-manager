@@ -150,7 +150,7 @@ export async function addNote(text, { date, flagged } = {}) {
 }
 
 // Fetch today's release-curve timeline for the current user's active
-// medication -- computed by the pk service, not here. Requires a dose to
+// medication -- computed by the pk module, not here. Requires a dose to
 // already be logged for today (pass an ISO-8601 timestamp with a UTC offset
 // as `takenAt` to ask about a different moment instead), and optionally a
 // catalogue id as `medicationId` to preview a medication the user hasn't
@@ -165,8 +165,8 @@ export async function fetchTimeline(takenAt, medicationId) {
 }
 
 // Fetch adherence stats over the last `days` days (default 14) for the
-// current user's active medication -- on_time/late/missed classification,
-// streak and adherence percentage are computed by the pk service, not here.
+// current user's active medication -- on-time/late/missed classification,
+// streak and adherence percentage are computed by the pk module, not here.
 // Returns { days: [{ date, status, minutes_late? }], adherence, streak_days, missed, of, ... }
 export async function fetchAdherence(days) {
   const response = await api.get("/api/adherence/", { params: days ? { days } : undefined })

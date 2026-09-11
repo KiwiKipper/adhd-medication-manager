@@ -215,14 +215,11 @@ MAILERS = {
     },
 }
 
-
-# The pk service: a stateless calculator on the private network, reachable
-# only from this VM. web never does the release-curve or adherence maths
-# itself -- it fetches parameters from the database and posts them here.
-# Overridable so local dev (this venv has no VM) can point at a locally-run
-# pk instance instead of the deployed 192.168.56.11.
-PK_SERVICE_URL = os.environ.get('PK_SERVICE_URL', 'http://192.168.56.11:8001')
-PK_SERVICE_TIMEOUT = float(os.environ.get('PK_SERVICE_TIMEOUT', '5'))
+# The release-curve and adherence maths live in pk/ (backend/pk/), a plain
+# Python package with no Django import of its own. tracker.services calls
+# it in-process through compute_timeline/compute_adherence/classify_dose --
+# there used to be a PK_SERVICE_URL here pointing at a separate VM over
+# HTTP; that VM is gone, and so is the setting.
 
 """
 # Authenticate user using UserAccount table

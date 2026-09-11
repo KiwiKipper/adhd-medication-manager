@@ -1,6 +1,6 @@
 // Chart helpers for the release-curve pages.
 //
-// The curve itself is computed by the pk service: fetchTimeline() in api.js
+// The curve itself is computed by the pk module: fetchTimeline() in api.js
 // returns `curve: [{ t_h, level }]`, sampled every few minutes from the
 // moment the dose was taken, with `level` as a proportion of that curve's
 // own peak (so 1 is the peak, not a blood concentration). Nothing in this

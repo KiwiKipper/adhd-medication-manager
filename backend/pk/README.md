@@ -1,67 +1,50 @@
-# pk service
+# pk
 
-A stateless calculator for the ADHD medication manager. It runs on the `pk`
-VM (`192.168.56.11:8001`, private network only) and does two things: turn a
-dose's absorption/elimination parameters into a sampled concentration curve
-and a set of labelled events, and turn a list of doses into an adherence
-report. It has no database, no models, no auth, no sessions and no admin --
-every value it needs comes in on the request, and nothing survives past the
-response.
+The release-curve and adherence maths for the ADHD medication manager, as a
+plain Python package with no Django import and no I/O of its own. It used to
+be a separate HTTP service on its own VM; it is now called in-process from
+`tracker/services.py` (`compute_timeline`, `compute_adherence`,
+`classify_dose`), which is the only code outside this package that should
+import it. It does two things: turn a dose's absorption/elimination
+parameters into a sampled concentration curve and a set of labelled events,
+and turn a list of doses into an adherence report -- on_time/late/missed,
+by the single `classify()` rule both `POST /api/doses/` and
+`GET /api/adherence/` now share, so the two can no longer disagree about the
+same dose.
 
 ## Layout
 
 ```
 pk/
-  manage.py
-  pk/            settings.py, urls.py, wsgi.py -- Django wiring only
-  timeline/      views.py, urls.py -- thin HTTP layer
-  model.py       the Bateman maths, plain Python, no Django import
+  __init__.py
+  model.py       the Bateman maths and classify(), plain Python, no Django import
   config.py      every tunable threshold, in one place
-  deploy/        the systemd unit installed by provisions/pk.sh
-  tests/         runs standalone, no VM or Django install required for
-                 tests/test_model.py; tests/test_views.py additionally
-                 needs Django (see requirements.txt)
+  tests/
+    test_model.py  runs standalone, no Django install required
 ```
 
 ## Running the tests
 
-Model tests only need the Python standard library:
+Standard library only:
 
 ```
-py -m unittest discover -s tests -t .
+py -m unittest discover -s pk/tests -t .
 ```
 
-(pass `-p test_model.py` to run just the model tests). The endpoint tests
-additionally need Django installed (`pip install -r requirements.txt` into a
-venv), then:
-
-```
-py manage.py test tests
-```
-
-which runs both `test_model.py` and `test_views.py` -- the latter via
-Django's in-process test client, so it still needs no running server and no
-VM.
-
-## Running it locally
-
-```
-pip install -r requirements.txt
-py manage.py runserver 127.0.0.1:8001
-```
-
-In deployment, `provisions/pk.sh` installs a pinned venv at `/opt/pk/venv`
-and runs `gunicorn pk.wsgi --bind 0.0.0.0:8001` under systemd
-(`deploy/pk.service`), with `DEBUG=False` and `ALLOWED_HOSTS` covering the
-private IP.
+(from `backend/`; pass `-p test_model.py` to run just this module). Also
+picked up automatically by `manage.py test` as part of the full suite --
+Django's test runner discovers `test*.py` files under the current directory
+regardless of `INSTALLED_APPS`, and `pk` isn't a Django app (no models, no
+`apps.py`, not in `INSTALLED_APPS`).
 
 ## Medication defaults
 
 `model.py` and `config.py` take every pharmacological parameter (fraction,
-delay, ka, ke/half-life) from the request body -- nothing is hardcoded here.
+delay, ka, ke/half-life) from the caller -- nothing is hardcoded here.
 
-TODO: once `db/seed/medications.json` exists, real per-medication defaults
-(ka, ke or half-life, release-component fractions and delays) belong there,
-each with `source`, `source_url` and `retrieved` fields filled in from
-Medsafe or the NZ Formulary -- not invented here. Until then, `pk` only
-computes on whatever `web` sends it.
+TODO: once real per-medication defaults (ka, ke or half-life, release-component
+fractions and delays) are sourced from Medsafe or the NZ Formulary, they
+belong on `tracker.Medication.pk_components` (see
+`tracker/migrations/0004_seed_pk_components.py`), each with `source`,
+`source_url` and `retrieved` filled in -- not invented here. Until then, `pk`
+only computes on whatever `tracker` sends it.

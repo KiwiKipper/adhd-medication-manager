@@ -18,8 +18,6 @@ Design notes
   by its ``fraction``, so ``fraction`` means "this share of the peak-effect
   budget" and stays legible regardless of that component's ka/ke. The summed
   curve is then renormalised so its own maximum is 1.0.
-* Written for Python 3.6 (the Vagrant box is bento/ubuntu-18.04), so: no
-  dataclasses, no datetime.fromisoformat, no walrus operator.
 """
 
 import math
@@ -27,7 +25,7 @@ import re
 from collections import namedtuple
 from datetime import datetime, timedelta, timezone
 
-import config
+from . import config
 
 # Event labels. Presentation strings, not tunable thresholds.
 LABEL_TAKEN          = "Taken"
@@ -48,8 +46,10 @@ _LABEL_RANK = {
     LABEL_WORN: 5,
 }
 
-# Adherence statuses.
-STATUS_ON_TIME = "on_time"
+# Adherence statuses. Spelled to match tracker.models.Dose.Status exactly --
+# this is the one place either app decides on-time/late, so there is only
+# one spelling of it to agree on.
+STATUS_ON_TIME = "on-time"
 STATUS_LATE    = "late"
 STATUS_MISSED  = "missed"
 
@@ -422,6 +422,25 @@ def _parse_minutes_of_day(text, where):
     return hours * 60 + minutes
 
 
+def classify(scheduled_minutes, taken_minutes, late_after_minutes=None):
+    """The one on-time/late rule, as minutes-since-midnight in.
+
+    Used by adherence_report below, and directly by tracker.services when a
+    dose is logged, so a day's status can never read one way on Today and
+    another way on History -- there is exactly one place this decision is
+    made.
+
+    Returns ``(status, minutes_late)``. ``minutes_late`` is signed, so a dose
+    taken before its scheduled time reads as negative and still counts as
+    on time.
+    """
+    if late_after_minutes is None:
+        late_after_minutes = config.LATE_AFTER_MINUTES
+    minutes_late = taken_minutes - scheduled_minutes
+    status = STATUS_LATE if minutes_late > late_after_minutes else STATUS_ON_TIME
+    return status, minutes_late
+
+
 def adherence_report(raw_doses, late_after_minutes=None):
     """Classify each dose and summarise the run of them.
 
@@ -465,8 +484,7 @@ def adherence_report(raw_doses, late_after_minutes=None):
             continue
 
         taken = _parse_minutes_of_day(raw["taken_at"], "%s.taken_at" % where)
-        minutes_late = taken - scheduled
-        status = STATUS_LATE if minutes_late > late_after_minutes else STATUS_ON_TIME
+        status, minutes_late = classify(scheduled, taken, late_after_minutes)
         parsed.append((date, status, minutes_late))
 
     parsed.sort(key=lambda row: row[0], reverse=True)

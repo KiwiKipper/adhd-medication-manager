@@ -2,7 +2,7 @@
 // The day-curve page (step 8 of docs/notes/steps.md): today's dose drawn as the
 // release curve pk computed for it, on a real clock-time axis.
 //
-// Everything shaped here comes from the pk service via fetchTimeline() --
+// Everything shaped here comes from the pk module via fetchTimeline() --
 // the sampled curve, and the labelled events marked along it. This page only
 // scales those numbers into the chart box (see lib/curve.js) and says, in
 // words, what they are: a model of an average response, not a measurement.

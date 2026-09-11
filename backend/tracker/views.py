@@ -1,6 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_date, parse_time
+from django.utils.dateparse import parse_date, parse_datetime, parse_time
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from .models import Dose, Medication, Note, UserMedication
 from .serializers import DoseSerializer, MedicationSerializer, NoteSerializer
-from .services import PkServiceError, call_pk_adherence, call_pk_timeline
+from .services import PkInputError, classify_dose, compute_adherence, compute_timeline
 
 
 @api_view(["GET"])
@@ -93,23 +93,50 @@ def doses_view(request) -> Response:
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     if request.method == "POST":
+        # Fetched unconditionally (not only in the implicit-medication
+        # branch below): this is also where the scheduled_time that
+        # classify_dose compares against comes from.
+        active = UserMedication.objects.filter(user=request.user, is_active=True).first()
+
         medication_id = request.data.get("medication")
         if medication_id:
             medication = get_object_or_404(Medication, pk=medication_id)
+        elif active is not None:
+            medication = active.medication
         else:
-            active = UserMedication.objects.filter(user=request.user, is_active=True).first()
-            if active is None:
+            return Response(
+                {"error": "No active medication selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_taken_at = request.data.get("taken_at")
+        if raw_taken_at:
+            # parse_datetime returns None for the wrong shape but raises for
+            # a well-formed impossible value ("2026-13-01T08:00:00+12:00"),
+            # the same split parse_time/parse_date have elsewhere in this
+            # file; both are the caller's mistake, not a server error.
+            try:
+                taken_at = parse_datetime(raw_taken_at) if isinstance(raw_taken_at, str) else None
+            except ValueError:
+                taken_at = None
+            if taken_at is None:
                 return Response(
-                    {"error": "No active medication selected."},
+                    {"error": "taken_at must be an ISO-8601 datetime."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            medication = active.medication
+            if timezone.is_naive(taken_at):
+                taken_at = timezone.make_aware(taken_at)
+        else:
+            taken_at = timezone.now()
 
-        taken_at = request.data.get("taken_at") or timezone.now()
         today = timezone.localdate()
+        scheduled_time = active.scheduled_time if active else None
         dose, created = Dose.objects.get_or_create(
             user=request.user, date=today,
-            defaults={"medication": medication, "taken_at": taken_at, "status": Dose.Status.ON_TIME},
+            defaults={
+                "medication": medication, "taken_at": taken_at,
+                "status": classify_dose(scheduled_time, taken_at),
+            },
         )
         if not created:
             dose.medication = medication
@@ -131,14 +158,15 @@ def doses_view(request) -> Response:
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def timeline_view(request) -> Response:
-    """The release-curve timeline for one dose, computed by pk.
+    """The release-curve timeline for one dose, computed by the pk module.
 
     Defaults to today's logged dose of the active medication; pass
     ?taken_at=<ISO-8601 with offset> to ask about a different moment, and
     ?medication=<catalogue id> to ask about a medication the user has not
     selected -- which is what the Medications page previews a curve with,
-    instead of drawing a hand-made shape. web only gathers the medication's
-    curve parameters and a taken_at from the database -- pk does the maths.
+    instead of drawing a hand-made shape. This view only gathers the
+    medication's curve parameters and a taken_at from the database -- pk
+    does the maths.
     """
     medication_id = request.query_params.get("medication")
     if medication_id:
@@ -158,7 +186,10 @@ def timeline_view(request) -> Response:
             return Response(
                 {"error": "No dose logged for today yet."}, status=status.HTTP_400_BAD_REQUEST,
             )
-        taken_at = dose.taken_at.isoformat()
+        # Django stores taken_at in UTC; convert to local time so the events
+        # pk derives carry the +12:00/+13:00 offset the frontend displays,
+        # not a bare Z that would read six hours off on screen.
+        taken_at = timezone.localtime(dose.taken_at)
 
     if not medication.pk_components:
         return Response(
@@ -167,9 +198,9 @@ def timeline_view(request) -> Response:
         )
 
     try:
-        result = call_pk_timeline(taken_at, medication.pk_components)
-    except PkServiceError as exc:
-        return Response({"error": exc.message}, status=exc.status_code)
+        result = compute_timeline(taken_at, medication.pk_components)
+    except PkInputError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(result)
 
@@ -178,8 +209,9 @@ def timeline_view(request) -> Response:
 @permission_classes([IsAuthenticated])
 def adherence_view(request) -> Response:
     """Adherence stats over the last `days` days (default 14), computed by
-    pk. web only gathers each day's scheduled/taken time from the database
-    -- classifying a day as on_time/late/missed is pk's job, not web's."""
+    the pk module. This view only gathers each day's scheduled/taken time
+    from the database -- classifying a day as on-time/late/missed is pk's
+    job, by the same classify() that POST /doses/ uses."""
     active = UserMedication.objects.filter(user=request.user, is_active=True).first()
     if active is None:
         return Response(
@@ -215,9 +247,9 @@ def adherence_view(request) -> Response:
         payload_doses.append({"date": date.isoformat(), "scheduled": scheduled, "taken_at": taken_at})
 
     try:
-        result = call_pk_adherence(payload_doses)
-    except PkServiceError as exc:
-        return Response({"error": exc.message}, status=exc.status_code)
+        result = compute_adherence(payload_doses)
+    except PkInputError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(result)
 
