@@ -1,6 +1,6 @@
 """Tests for the session-auth endpoints under /auth/.
 
-Run from web/backend/ with:
+Run from backend/ with:
 
     DB_ENGINE=sqlite py manage.py test
 

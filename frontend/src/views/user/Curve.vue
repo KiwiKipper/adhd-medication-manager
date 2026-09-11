@@ -1,5 +1,5 @@
 <script setup>
-// The day-curve page (step 8 of web/steps.md): today's dose drawn as the
+// The day-curve page (step 8 of docs/notes/steps.md): today's dose drawn as the
 // release curve pk computed for it, on a real clock-time axis.
 //
 // Everything shaped here comes from the pk service via fetchTimeline() --

@@ -8,5 +8,9 @@ venv/
 # Vagrant local machine state (VM ids, per-machine scratch) -- specific to
 # whoever ran `vagrant up`, never shared.
 .vagrant/
-# collectstatic output (STATIC_ROOT), built on the web VM
-web/backend/staticfiles/
+# collectstatic output (STATIC_ROOT), built on the backend VM
+backend/staticfiles/
+# Local dev database (DB_ENGINE=sqlite) -- the postgres switch means nothing
+# depends on this file, and a committed dev db ships whoever's local rows
+# and conflicts on every merge.
+backend/db.sqlite3

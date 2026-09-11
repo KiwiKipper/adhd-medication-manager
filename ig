@@ -1,7 +1,0 @@
-.venv/
-__pycache__/
-*.pyc
-node_modules/
-dist/
-db.sqlite3
-.vagrant/

@@ -6,7 +6,7 @@ database and how it behaves when pk misbehaves. Both are exercised by
 patching tracker.views' pk callables, which is where services.py's functions
 are looked up.
 
-Run from web/backend/ with:
+Run from backend/ with:
 
     DB_ENGINE=sqlite py manage.py test
 
