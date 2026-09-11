@@ -35,9 +35,9 @@ def env_list(name, default):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-# Everything below that differs between a laptop and the web VM is driven by
+# Everything below that differs between a laptop and the backend VM is driven by
 # an environment variable, with a default that keeps `manage.py runserver`
-# working out of the box. provisions/web.sh sets these in the gunicorn unit.
+# working out of the box. provisions/backend.sh sets these in the gunicorn unit.
 
 # SECURITY WARNING: keep the secret key used in production secret! The
 # fallback is a development-only key -- set DJANGO_SECRET_KEY on the VM.
@@ -50,10 +50,13 @@ SECRET_KEY = os.environ.get(
 DEBUG = env_bool('DJANGO_DEBUG', True)
 
 # Django refuses to serve with DEBUG off and an empty ALLOWED_HOSTS, so the
-# default covers localhost plus the web VM's private-network address.
+# default covers localhost, this VM's own private-network address, and the
+# frontend VM's -- nginx there proxies requests here carrying whatever Host
+# the browser actually sent (see frontend/deploy/proxy_params_backend), so
+# that address has to be allowed too.
 ALLOWED_HOSTS = env_list(
     'DJANGO_ALLOWED_HOSTS',
-    ['localhost', '127.0.0.1', '192.168.56.12', 'web'],
+    ['localhost', '127.0.0.1', '192.168.56.11', 'backend', '192.168.56.12', 'frontend'],
 )
 
 
@@ -72,17 +75,16 @@ INSTALLED_APPS = [
     'tracker'
 ]
 
-# Send credentials with request. The SPA runs on a different origin to the
-# API in both deployments -- Vite's dev server on a laptop (localhost:5173)
-# and the built frontend served from the web VM (192.168.56.12) -- so both
-# have to be trusted for the session cookie and CSRF token to survive.
+# Send credentials with request. In the deployed VMs, nginx on the frontend
+# VM serves the SPA and proxies the API from one origin, so the browser
+# never makes a cross-origin request there at all -- these defaults exist
+# for a laptop frontend (Vite's dev server, localhost:5173) pointed at this
+# API directly.
 CORS_ALLOW_CREDENTIALS = True
 
 _DEFAULT_FRONTEND_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://192.168.56.12:5173",
-    "http://192.168.56.12:8000",
 ]
 
 CORS_ALLOWED_ORIGINS = env_list('DJANGO_CORS_ORIGINS', _DEFAULT_FRONTEND_ORIGINS)
@@ -91,6 +93,11 @@ CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_ORIGINS', CORS_ALLOWED_ORIGINS)
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Serves STATIC_ROOT directly from gunicorn, so the deployed VMs need no
+    # nginx alias for /static/ on this side -- the frontend VM's nginx just
+    # proxies /static/ here like any other API path. Placed right after
+    # SecurityMiddleware per WhiteNoise's own install instructions.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -201,8 +208,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 # Where `manage.py collectstatic` gathers the admin's static files for
-# gunicorn to serve on the web VM. Ignored by `runserver`, which serves them
-# straight out of each app.
+# WhiteNoise (see MIDDLEWARE above) to serve on the backend VM. Ignored by
+# `runserver`, which serves them straight out of each app.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 

@@ -2,8 +2,8 @@
 set -e
 
 # Provisions the postgres node. Django owns the schema -- `manage.py migrate`
-# on the web VM creates every table from the models in web/backend/tracker
-# and web/backend/users -- so nothing here defines tables. This script only
+# on the backend VM creates every table from the models in backend/tracker
+# and backend/users -- so nothing here defines tables. This script only
 # creates the role and the empty database, and opens postgres up to the
 # private network.
 #
@@ -12,8 +12,8 @@ set -e
 # second run is a no-op rather than a failure. Existing data is never
 # dropped.
 
-# Must match DB_PASSWORD in the web VM's gunicorn environment -- see
-# provisions/web.sh and web/backend/config/settings.py.
+# Must match DB_PASSWORD in the backend VM's gunicorn environment -- see
+# provisions/backend.sh and backend/config/settings.py.
 DB_NAME=adhd
 DB_USER=adhd
 DB_PASSWORD=password
@@ -43,7 +43,7 @@ else
     echo "db: created database $DB_NAME"
 fi
 
-# Let the pk/web VMs reach postgres over the private network instead of
+# Let the backend VM reach postgres over the private network instead of
 # only the local UNIX socket.
 PG_CONF=$(find /etc/postgresql -name postgresql.conf)
 PG_HBA=$(find /etc/postgresql -name pg_hba.conf)
@@ -51,7 +51,11 @@ PG_HBA=$(find /etc/postgresql -name pg_hba.conf)
 sed -i "s/^#\?listen_addresses.*/listen_addresses = '*'/" "$PG_CONF"
 
 # Appending unconditionally would stack up a duplicate rule per provision.
-HBA_RULE="host    $DB_NAME    $DB_USER    192.168.56.0/24    md5"
+# scram-sha-256, not md5: PG16's own default password_encryption is
+# scram-sha-256, so this is what ALTER ROLE ... WITH PASSWORD above already
+# stored -- asking for it explicitly here is the stronger of the two
+# methods that would otherwise both "work" against a SCRAM-hashed password.
+HBA_RULE="host    $DB_NAME    $DB_USER    192.168.56.0/24    scram-sha-256"
 if ! grep -qF "$HBA_RULE" "$PG_HBA"; then
     echo "$HBA_RULE" >> "$PG_HBA"
 fi
@@ -59,9 +63,10 @@ fi
 systemctl restart postgresql
 
 # Fail loudly rather than leaving a green `vagrant up` behind a database the
-# web VM can't actually reach. Connecting over the private IP (not the local
-# socket) is the point: it exercises listen_addresses, the pg_hba rule and
-# md5 auth together, which is exactly what Django will do from web.
+# backend VM can't actually reach. Connecting over the private IP (not the
+# local socket) is the point: it exercises listen_addresses, the pg_hba rule
+# and scram-sha-256 auth together, which is exactly what Django will do from
+# the backend VM.
 for attempt in $(seq 1 10); do
     if PGPASSWORD="$DB_PASSWORD" psql -h 192.168.56.10 -U "$DB_USER" -d "$DB_NAME" \
         -tAc "SELECT 1" > /dev/null 2>&1; then

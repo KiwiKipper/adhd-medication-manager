@@ -1,20 +1,21 @@
 [Unit]
-Description=web service -- Django API (ADHD medication manager)
+Description=backend service -- Django API (ADHD medication manager)
 # The API is useless without the database, but db is a different VM that
-# systemd cannot order against, so provisions/web.sh waits for postgres
+# systemd cannot order against, so provisions/backend.sh waits for postgres
 # before it starts this unit.
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/vagrant/web/backend
+WorkingDirectory=/vagrant/backend
 Environment=DJANGO_SETTINGS_MODULE=config.settings
-EnvironmentFile=/etc/web.env
-# Bound to loopback on purpose: nginx is the only thing that should talk to
-# gunicorn, and it is what serves the SPA and terminates :8000. 8080 rather
-# than 8001 only to avoid reading like the pk service, which is a different
-# VM entirely.
-ExecStart=/opt/web/venv/bin/gunicorn config.wsgi --bind 127.0.0.1:8080 --workers 3
+EnvironmentFile=/etc/backend.env
+# Bound to every interface, not loopback: nginx on the frontend VM reaches
+# this one over the host-only network (192.168.56.11:8000), and there is no
+# local reverse proxy on this VM to bind to instead. The only things that
+# can reach this port are the frontend VM, the host (via the debug port
+# forward), and this VM itself -- the host-only network has no other member.
+ExecStart=/opt/backend/venv/bin/gunicorn config.wsgi --bind 0.0.0.0:8000 --workers 3
 Restart=always
 RestartSec=2
 
