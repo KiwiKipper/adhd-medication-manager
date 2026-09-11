@@ -69,9 +69,39 @@ class MedicationTests(ApiTestCase):
 
         body = response.json()
         self.assertEqual(len(body), Medication.objects.count())
-        self.assertIn({"id": "methylphenidate-ir", "name": "Methylphenidate IR"}, body)
+        row = next(r for r in body if r["id"] == "methylphenidate-ir")
+        self.assertEqual(row["name"], "Methylphenidate IR")
         for row in body:
-            self.assertEqual(set(row), {"id", "name"})
+            self.assertEqual(
+                set(row),
+                {"id", "name", "blurb", "description", "drug_class",
+                 "source", "source_url", "retrieved"},
+            )
+
+    def test_catalogue_carries_the_copy_the_medications_page_renders(self):
+        # The page used to read this text from the frontend's
+        # placeholderData.js; migration 0007 moved it here, so it has to
+        # actually come back on the wire.
+        body = self.client.get("/api/medications/").json()
+        concerta = next(r for r in body if r["id"] == "concerta")
+        self.assertTrue(concerta["blurb"])
+        self.assertTrue(concerta["description"])
+        self.assertEqual(concerta["drug_class"], "methylphenidate-class stimulant")
+        # Not every stimulant in the catalogue is a methylphenidate one --
+        # the design mock said so for all five, which was wrong.
+        vyvanse = next(r for r in body if r["id"] == "vyvanse")
+        self.assertIn("amfetamine", vyvanse["drug_class"])
+
+    def test_catalogue_provenance_is_still_blank_and_says_so(self):
+        # Deliberate: nothing has been checked against Medsafe or the NZ
+        # Formulary yet (TODO.md section 3), and the page shows "no source
+        # recorded yet" rather than a plausible-looking citation. If this
+        # test starts failing because the fields were filled in, that is the
+        # good outcome -- update it then.
+        for row in self.client.get("/api/medications/").json():
+            self.assertEqual(row["source"], "")
+            self.assertEqual(row["source_url"], "")
+            self.assertIsNone(row["retrieved"])
 
     def test_my_medication_is_null_before_one_is_chosen(self):
         response = self.client.get("/api/my-medication/")
@@ -111,6 +141,74 @@ class MedicationTests(ApiTestCase):
     def test_my_medication_does_not_leak_another_users_selection(self):
         self.select(user=self.other)
         self.assertIsNone(self.client.get("/api/my-medication/").json()["medication"])
+
+
+class ScheduledTimeTests(ApiTestCase):
+    """The daily time pk compares each dose against.
+
+    It defaulted everyone to 8am with no way to change it, which made
+    on-time/late wrong for anyone not on an 8am dose.
+    """
+
+    def _post(self, **payload):
+        return self.client.post("/api/my-medication/", payload,
+                                content_type="application/json")
+
+    def test_scheduled_time_comes_back_with_the_selection(self):
+        self.select(scheduled_time=datetime.time(7, 30))
+        self.assertEqual(
+            self.client.get("/api/my-medication/").json()["scheduled_time"], "07:30"
+        )
+
+    def test_scheduled_time_is_null_before_a_medication_is_chosen(self):
+        self.assertIsNone(self.client.get("/api/my-medication/").json()["scheduled_time"])
+
+    def test_time_alone_updates_the_current_selection_in_place(self):
+        selection = self.select()
+        response = self._post(scheduled_time="14:45")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["scheduled_time"], "14:45")
+        selection.refresh_from_db()
+        self.assertEqual(selection.scheduled_time, datetime.time(14, 45))
+        # No churn: the same row, not a replacement selection.
+        self.assertEqual(UserMedication.objects.filter(user=self.user).count(), 1)
+
+    def test_medication_and_time_can_be_set_together(self):
+        response = self._post(medication="methylphenidate-ir", scheduled_time="09:15")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["medication"]["id"], "methylphenidate-ir")
+        self.assertEqual(response.json()["scheduled_time"], "09:15")
+
+    def test_switching_medication_keeps_the_time_already_set(self):
+        self.select(scheduled_time=datetime.time(6, 5))
+        other = Medication.objects.create(id="lisdexamfetamine", name="Lisdexamfetamine")
+        response = self._post(medication=other.id)
+        self.assertEqual(response.json()["scheduled_time"], "06:05")
+
+    def test_a_time_with_no_selection_yet_is_400(self):
+        response = self._post(scheduled_time="09:00")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())
+        self.assertEqual(UserMedication.objects.count(), 0)
+
+    def test_an_unparseable_time_is_400_and_changes_nothing(self):
+        selection = self.select()
+        for bad in ("half nine", "25:00", 900):
+            with self.subTest(bad=bad):
+                response = self._post(scheduled_time=bad)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("error", response.json())
+        selection.refresh_from_db()
+        self.assertEqual(selection.scheduled_time, datetime.time(8, 0))
+
+    def test_the_scheduled_time_is_what_adherence_sends_pk(self):
+        # The whole point of the picker: pk classifies against this value.
+        self.select(scheduled_time=datetime.time(12, 30))
+        with patch("tracker.views.call_pk_adherence", return_value={"days": []}) as pk:
+            self.client.get("/api/adherence/", {"days": 1})
+        sent = pk.call_args.args[0]
+        self.assertEqual(sent[0]["scheduled"], "12:30")
 
 
 class DoseLoggingTests(ApiTestCase):
@@ -240,6 +338,39 @@ class TimelineTests(ApiTestCase):
             response = self.client.get("/api/timeline/")
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json())
+        pk.assert_not_called()
+
+    def test_medication_query_param_previews_another_medication(self):
+        # What the Medications page draws its curve preview with: a
+        # medication the user has not selected, at a time of the caller's
+        # choosing, without needing a logged dose.
+        other = Medication.objects.create(
+            id="lisdexamfetamine", name="Lisdexamfetamine",
+            pk_components=[{"fraction": 1.0, "delay_h": 0.0, "ka": 0.4, "half_life_h": 6.0}],
+        )
+        self.select()
+
+        with patch("tracker.views.call_pk_timeline", return_value=self.PK_RESULT) as pk:
+            response = self.client.get("/api/timeline/", {
+                "medication": other.id, "taken_at": "2026-09-10T08:00:00+12:00",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        pk.assert_called_once_with("2026-09-10T08:00:00+12:00", other.pk_components)
+
+    def test_previewing_needs_no_active_medication(self):
+        with patch("tracker.views.call_pk_timeline", return_value=self.PK_RESULT) as pk:
+            response = self.client.get("/api/timeline/", {
+                "medication": self.medication.id, "taken_at": "2026-09-10T08:00:00+12:00",
+            })
+        self.assertEqual(response.status_code, 200)
+        pk.assert_called_once_with("2026-09-10T08:00:00+12:00", COMPONENTS)
+
+    def test_unknown_medication_query_param_is_404_without_calling_pk(self):
+        self.select()
+        with patch("tracker.views.call_pk_timeline") as pk:
+            response = self.client.get("/api/timeline/", {"medication": "nope"})
+        self.assertEqual(response.status_code, 404)
         pk.assert_not_called()
 
     def test_medication_without_components_is_400_without_calling_pk(self):

@@ -1,6 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_date
+from django.utils.dateparse import parse_date, parse_time
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -21,18 +21,67 @@ def medications_view(request) -> Response:
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def my_medication_view(request) -> Response:
-    if request.method == "POST":
-        medication = get_object_or_404(Medication, pk=request.data.get("medication"))
-        UserMedication.objects.filter(user=request.user, is_active=True).update(is_active=False)
-        UserMedication.objects.create(user=request.user, medication=medication, is_active=True)
-    else:
-        medication = Medication.objects.filter(
-            user_selections__user=request.user, user_selections__is_active=True
-        ).first()
+    """The user's active medication and the daily time it is scheduled for.
 
-    if medication is None:
-        return Response({"medication": None})
-    return Response({"medication": MedicationSerializer(medication).data})
+    POST takes "medication" (a catalogue id), "scheduled_time" ("HH:MM"), or
+    both. Sending only a time changes the schedule of the current selection,
+    so the Medications page's time picker does not have to re-select the
+    medication to move someone off the 8am default -- which is what made
+    on-time/late classification wrong for anyone not on an 8am dose.
+    """
+    active = UserMedication.objects.filter(user=request.user, is_active=True).first()
+
+    if request.method == "POST":
+        scheduled_time = None
+        raw_time = request.data.get("scheduled_time")
+        if raw_time is not None:
+            # parse_time returns None for the wrong shape but raises for a
+            # well-formed impossible time ("25:00"), the same split parse_date
+            # has in notes_view below; both are the caller's mistake.
+            try:
+                scheduled_time = parse_time(raw_time) if isinstance(raw_time, str) else None
+            except ValueError:
+                scheduled_time = None
+            if scheduled_time is None:
+                return Response(
+                    {"error": "scheduled_time must be HH:MM."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        medication_id = request.data.get("medication")
+        if medication_id:
+            medication = get_object_or_404(Medication, pk=medication_id)
+        elif active is not None:
+            medication = active.medication
+        else:
+            return Response(
+                {"error": "medication is required until one has been selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if active is not None and active.medication_id == medication.id:
+            # Same medication, new time: keep the existing selection (and its
+            # selected_at) rather than replacing the row for a time change.
+            if scheduled_time is not None:
+                active.scheduled_time = scheduled_time
+                active.save(update_fields=["scheduled_time"])
+        else:
+            UserMedication.objects.filter(user=request.user, is_active=True).update(is_active=False)
+            fields = {"scheduled_time": scheduled_time} if scheduled_time else {}
+            # An unspecified time carries the previous selection's time over,
+            # so switching medication does not silently reset it to 8am.
+            if not fields and active is not None:
+                fields = {"scheduled_time": active.scheduled_time}
+            active = UserMedication.objects.create(
+                user=request.user, medication=medication, is_active=True, **fields,
+            )
+
+    if active is None:
+        return Response({"medication": None, "scheduled_time": None})
+    return Response({
+        "medication": MedicationSerializer(active.medication).data,
+        "scheduled_time": active.scheduled_time.strftime("%H:%M"),
+    })
 
 
 @api_view(["GET", "POST", "DELETE"])
@@ -84,15 +133,23 @@ def doses_view(request) -> Response:
 def timeline_view(request) -> Response:
     """The release-curve timeline for one dose, computed by pk.
 
-    Defaults to today's logged dose; pass ?taken_at=<ISO-8601 with offset> to
-    ask about a different moment. web only gathers the medication's curve
-    parameters and today's taken_at from the database -- pk does the maths.
+    Defaults to today's logged dose of the active medication; pass
+    ?taken_at=<ISO-8601 with offset> to ask about a different moment, and
+    ?medication=<catalogue id> to ask about a medication the user has not
+    selected -- which is what the Medications page previews a curve with,
+    instead of drawing a hand-made shape. web only gathers the medication's
+    curve parameters and a taken_at from the database -- pk does the maths.
     """
-    active = UserMedication.objects.filter(user=request.user, is_active=True).first()
-    if active is None:
-        return Response(
-            {"error": "No active medication selected."}, status=status.HTTP_400_BAD_REQUEST,
-        )
+    medication_id = request.query_params.get("medication")
+    if medication_id:
+        medication = get_object_or_404(Medication, pk=medication_id)
+    else:
+        active = UserMedication.objects.filter(user=request.user, is_active=True).first()
+        if active is None:
+            return Response(
+                {"error": "No active medication selected."}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        medication = active.medication
 
     taken_at = request.query_params.get("taken_at")
     if not taken_at:
@@ -103,14 +160,14 @@ def timeline_view(request) -> Response:
             )
         taken_at = dose.taken_at.isoformat()
 
-    if not active.medication.pk_components:
+    if not medication.pk_components:
         return Response(
-            {"error": f"{active.medication.name} has no release-curve parameters configured yet."},
+            {"error": f"{medication.name} has no release-curve parameters configured yet."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
-        result = call_pk_timeline(taken_at, active.medication.pk_components)
+        result = call_pk_timeline(taken_at, medication.pk_components)
     except PkServiceError as exc:
         return Response({"error": exc.message}, status=exc.status_code)
 

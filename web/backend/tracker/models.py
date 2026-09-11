@@ -11,6 +11,18 @@ class Medication(models.Model):
     id = models.SlugField(primary_key=True, max_length=64)
     name = models.CharField(max_length=100)
 
+    # Descriptive copy shown on the Medications page. It lived in the
+    # frontend's lib/placeholderData.js until the page went off mock data;
+    # it is the project's own wording, and like pk_components below it still
+    # needs checking against a real source before it counts as sourced.
+    blurb = models.CharField(max_length=255, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    # "methylphenidate-class stimulant" and so on. A field rather than a
+    # frontend lookup table because it is a fact about the medication, and
+    # getting it wrong (the design mock labelled all five methylphenidate)
+    # is a medical error, not a styling one.
+    drug_class = models.CharField(max_length=100, blank=True, default="")
+
     # Sent straight through to pk's POST /timeline as the `components` list:
     # [{"fraction", "delay_h", "ka", "ke" or "half_life_h"}, ...]. web never
     # does the maths itself -- it only stores and forwards these parameters.
@@ -41,8 +53,8 @@ class UserMedication(models.Model):
     is_active = models.BooleanField(default=True)
     selected_at = models.DateTimeField(auto_now_add=True)
     # The daily dose time doses are compared against when pk classifies a day
-    # on_time/late/missed. No UI to change this yet -- everyone is scheduled
-    # for 8am until Medications.vue grows a time picker.
+    # on_time/late/missed. Set from the Medications page's time picker; 8am
+    # is only the default for a selection that has never been given one.
     scheduled_time = models.TimeField(default=datetime.time(8, 0))
 
     class Meta:
