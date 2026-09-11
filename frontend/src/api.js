@@ -1,9 +1,17 @@
 import axios from "axios"
 export const MAX_ATTEMPTS = 3
 export const TIMEOUT_ERROR = "ETIMEDOUT"
- 
+
 const api = axios.create({
-  baseURL: "http://localhost:8000",
+  // Empty string -- i.e. the same origin the page was loaded from. nginx on
+  // the frontend VM serves this SPA and proxies /api/, /auth/, /admin/ and
+  // /static/ to the backend VM from that one origin (see
+  // frontend/deploy/frontend.nginx.conf), so the browser never makes a
+  // cross-origin request and there is no host/port to hardcode. Set
+  // VITE_API_BASE to point a locally-run `npm run dev`/`vite build` at a
+  // different backend (vite.config.js's dev proxy covers the common case of
+  // just running against a local Django instead).
+  baseURL: import.meta.env.VITE_API_BASE ?? "",
   withCredentials: true,
   withXSRFToken: true,
   xsrfCookieName: "csrftoken",
