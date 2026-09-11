@@ -6,10 +6,10 @@ tracked in [web/features.md](web/features.md) and are not blockers.
 
 Last verified against `main` at 0094bfd (PRs #1 docs/v1-todo, #2
 backend/v1-config-and-tests, #3 infra/db-provisioning all merged), plus the
-web-provisioning branch below. Backend and infrastructure are essentially
-done — `vagrant up` now brings all three nodes up serving the app. The whole
-frontend and all of data correctness are still open, and those are the real
-remaining v1 work.
+web-provisioning and frontend branches below. Backend, frontend and
+infrastructure are essentially done — `vagrant up` brings all three nodes up
+serving the app, and no page reads mock data any more. Data correctness is
+now the bulk of what is left, and the README and report with it.
 
 ## 1. Backend
 
@@ -45,24 +45,46 @@ remaining v1 work.
 
 ## 2. Frontend
 
-- [ ] **Finish the Curve page.** [Curve.vue](web/frontend/src/views/user/Curve.vue)
-      is a 7-line placeholder (`<p>Curve</p>`). This is step 8 of
-      [web/steps.md](web/steps.md) and is still untouched.
-- [ ] **Finish the Notes page.** [Notes.vue](web/frontend/src/views/user/Notes.vue)
-      is the same 7-line placeholder.
-- [ ] **Use pk's real curve data.** [lib/curve.js:2-3](web/frontend/src/lib/curve.js#L2-L3)
-      still draws the hardcoded `DAY_CURVE_BASE_POINTS` design-mock shape even
-      though the timeline/adherence wiring to pk already landed. Feed the
-      chart from the pk `/timeline/` response instead.
-- [ ] **Medications page off placeholder data.**
-      [Medications.vue](web/frontend/src/views/user/Medications.vue) reads
-      `MED_DATA` from [lib/placeholderData.js](web/frontend/src/lib/placeholderData.js)
-      rather than fetching `/medications/`.
-- [ ] **Scheduled dose time picker.** `UserMedication.scheduled_time` defaults
-      everyone to 8am and there is no UI to change it, so on-time/late
-      classification is wrong for anyone not on an 8am dose.
-- [ ] **Retire `placeholderData.js`** once the two items above are done, so
-      nothing ships reading mock data.
+- [x] **Finish the Curve page.** Done — step 8 of
+      [web/steps.md](web/steps.md). [Curve.vue](web/frontend/src/views/user/Curve.vue)
+      draws today's dose as the curve pk computed for it, on a clock-time
+      axis anchored to the logged taken time (not the mock's fixed
+      6am–midnight window), with pk's milestones marked along it, a NOW
+      marker that ticks every minute, and its own states for "no medication
+      selected" and "no dose logged yet". The caption says in words that it
+      is a modelled average response rather than a measurement.
+- [x] **Finish the Notes page.** Done —
+      [Notes.vue](web/frontend/src/views/user/Notes.vue) lists every note
+      grouped by the day it is *about* (`Note.date`, so a note typed at 1am
+      still belongs to the previous day's dose), with a flagged-only filter
+      and a form that can file a note against an earlier day and flag it.
+      Routed at `/notes` with a nav entry; the Today sidebar now fetches
+      `?date=today` and links here for the rest.
+- [x] **Use pk's real curve data.** Done — `DAY_CURVE_BASE_POINTS` and
+      `dayCurvePath` are gone. [lib/curve.js](web/frontend/src/lib/curve.js)
+      now only maps pk's `curve: [{ t_h, level }]` samples onto chart
+      coordinates: a polyline through the actual samples, deliberately not a
+      smoothed spline, so nothing is invented between them.
+- [x] **Medications page off placeholder data.** Done — the page fetches
+      `/api/medications/`, and the "release shape" beside a medication is
+      the curve pk computes for it via the new
+      `GET /api/timeline/?medication=<id>`, asked for at the user's own
+      scheduled time. The blurb/description/drug-class copy moved into the
+      catalogue (migrations 0006/0007) rather than living in the frontend.
+- [x] **Scheduled dose time picker.** Done — `GET/POST /api/my-medication/`
+      now carries `scheduled_time`, and the Medications page has a picker
+      for it. Posting a time alone updates the current selection in place
+      (no medication re-select, no new row), and switching medication keeps
+      the time already set. That value is what `/api/adherence/` sends pk to
+      classify against, so on-time/late is no longer wrong for everyone not
+      on an 8am dose.
+- [x] **Retire `placeholderData.js`.** Done — the file is deleted and
+      nothing imports it. Note its per-medication `source` line ("Medsafe
+      consumer medicine information · retrieved 6 Sep 2026") was invented:
+      the catalogue's `source`/`source_url`/`retrieved` are genuinely empty,
+      so the Medications and Curve pages now say no source has been recorded
+      yet rather than displaying a citation that does not exist. Filling
+      them in is the provenance item in section 3.
 - [ ] *post-v1* — extract the inline `<svg>` into a shared `CurveChart.vue`,
       notes overlaid on the curve, History aggregate stats, LLM summaries.
 
@@ -87,9 +109,12 @@ remaining v1 work.
       disagreeing, so Today and History will contradict each other on screen.
       Decide which one owns the rule — pk is the better home, since it
       already has the thresholds — and have the other defer to it.
-- [ ] **Do not present modelled output as measurement.** The curve is a
-      Bateman-model prediction; make sure the UI copy says so wherever a curve
-      or a milestone time is shown.
+- [~] **Do not present modelled output as measurement.** Partly done — the
+      Curve page, the Today timeline and the Medications release shape each
+      carry a line saying the curve and its milestones are a modelled
+      average response rather than a measurement, alongside the nav's
+      standing disclaimer. Still to check: the History page's wording, and
+      anywhere the report ends up quoting a milestone time.
 - [ ] **Verify timezone handling end to end.** `provisions/common.sh` sets the
       VMs to `Pacific/Auckland` precisely because a UTC default silently
       shifts every timeline by 12-13 hours. Django's half is confirmed —
