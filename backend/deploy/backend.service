@@ -1,7 +1,7 @@
 [Unit]
 Description=backend service -- Django API (ADHD medication manager)
 # The API is useless without the database, but db is a different VM that
-# systemd cannot order against, so provisions/backend.sh waits for postgres
+# systemd cannot order against, so scripts/backend.sh waits for postgres
 # before it starts this unit.
 After=network.target
 

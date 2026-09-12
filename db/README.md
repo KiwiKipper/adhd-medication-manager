@@ -7,7 +7,7 @@ time (the role, the database, postgres's own config).
 
 ## What's actually here
 
-Nothing tracked. `provisions/db.sh` is what provisions this node:
+Nothing tracked. `scripts/db.sh` is what provisions this node:
 
 - installs `postgresql`;
 - creates the `adhd` role and database if they don't already exist
@@ -23,14 +23,14 @@ Nothing tracked. `provisions/db.sh` is what provisions this node:
 ## Schema
 
 There is no `schema.sql` here and never should be one: `backend/manage.py
-migrate` (run by `provisions/backend.sh`) creates every table from
+migrate` (run by `scripts/backend.sh`) creates every table from
 `backend/tracker/models.py` and `backend/users/`, and the data migrations in
 `backend/tracker/migrations/` seed the medication catalogue. Django's
 migration history is the schema's source of truth.
 
 ## Credentials
 
-`DB_NAME`/`DB_USER`/`DB_PASSWORD` are set at the top of `provisions/db.sh`
+`DB_NAME`/`DB_USER`/`DB_PASSWORD` are set at the top of `scripts/db.sh`
 and must match `backend/deploy/backend.env` exactly -- changing one without
 the other breaks the backend VM's next `migrate`. They're checked into
 version control because this is a coursework VM with no public exposure;

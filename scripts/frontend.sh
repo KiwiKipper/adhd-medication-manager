@@ -1,18 +1,14 @@
 #!/bin/bash
 set -e
 
-# Provisions the frontend node: nginx serving the built Vue SPA, proxying
-# every API path to gunicorn on the backend VM (192.168.56.11:8000) over the
-# host-only network. This node owns no data and runs no Django -- it is
-# just the browser's entry point.
+# Provisions the frontend node: nginx serving the built Vue SPA and proxying
+# the API paths to gunicorn on the backend VM over the host-only network.
+# No data and no Django here -- it's just the browser's entry point.
 #
-# Safe to rerun on every `vagrant provision`: npm install, the systemd-managed
-# nginx site and its config are all rewritten in place, and nginx is always
-# restarted so a synced source change actually takes effect.
+# Safe to rerun: the build and the nginx config are rewritten in place, and
+# nginx always restarts so a synced source change takes effect.
 #
-# python3 and curl are assumed installed by provisions/common.sh, which the
-# Vagrantfile runs immediately before this script (python3 isn't actually
-# used here, but common.sh installs it on every node for consistency).
+# curl comes from scripts/common.sh, which runs just before this.
 
 FRONTEND_SRC=/vagrant/frontend
 FRONTEND_BUILD=/opt/frontend
@@ -25,9 +21,6 @@ NODE_MAJOR=22
 
 apt-get install -y nginx
 
-# --------------------------------------------------------------------------
-# node
-# --------------------------------------------------------------------------
 # Guarded so a reprovision doesn't re-add the apt source and reinstall node
 # every time. `node -v` prints e.g. v22.14.0.
 need_node=1
@@ -44,14 +37,10 @@ if [ "$need_node" -eq 1 ]; then
     echo "frontend: installed node $(node -v)"
 fi
 
-# --------------------------------------------------------------------------
-# build
-# --------------------------------------------------------------------------
-# Built from a guest-local copy rather than in place. /vagrant is a synced
-# folder on the host's filesystem: installing node_modules into it is slow,
-# writes tens of thousands of files back onto the host, and breaks outright
-# when the host is Windows and a package ships a symlink or a
-# case-conflicting path.
+# Built from a guest-local copy rather than in place. /vagrant lives on the
+# host filesystem, so installing node_modules there is slow, writes tens of
+# thousands of files back to the host, and breaks outright on a Windows host
+# when a package ships a symlink or a case-conflicting path.
 mkdir -p "$FRONTEND_BUILD"
 rsync -a --delete \
     --exclude node_modules --exclude dist \
@@ -63,9 +52,6 @@ cd "$FRONTEND_BUILD"
 npm ci --no-audit --no-fund
 npm run build
 
-# --------------------------------------------------------------------------
-# nginx
-# --------------------------------------------------------------------------
 install -m 0644 "$DEPLOY/proxy_params_backend" /etc/nginx/proxy_params_backend
 install -m 0644 "$DEPLOY/frontend.nginx.conf" /etc/nginx/sites-available/frontend
 ln -sf /etc/nginx/sites-available/frontend /etc/nginx/sites-enabled/frontend
@@ -75,14 +61,9 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl restart nginx
 
-# --------------------------------------------------------------------------
-# health check
-# --------------------------------------------------------------------------
-# The Vagrantfile brings db and backend up before frontend, but provisioning
-# is not instantaneous -- a `vagrant up` of just this node, or a backend
-# reprovision still in flight, can leave this VM's first request arriving
-# before gunicorn is actually listening. Waited for here rather than failed
-# on immediately.
+# The Vagrantfile boots backend first, but provisioning isn't instant: a
+# `vagrant up` of just this node, or a backend reprovision still running, can
+# leave the first request arriving before gunicorn listens. So wait.
 echo "frontend: waiting for the backend API at $BACKEND_URL"
 for attempt in $(seq 1 30); do
     if curl -sf "$BACKEND_URL/auth/csrf/" > /dev/null; then
@@ -96,11 +77,9 @@ for attempt in $(seq 1 30); do
     sleep 2
 done
 
-# Fail loudly rather than leaving a green `vagrant up` behind a dead site.
-# Checking /auth/csrf/ *through this VM's own nginx* (not a direct curl at
-# the backend, which the step above already did) proves the whole chain --
-# nginx, the proxy to the backend VM, gunicorn, Django and the database --
-# actually works end to end, which is what a browser on the host will do.
+# Fail loudly rather than leave a green `vagrant up` behind a dead site.
+# Going through this VM's own nginx, rather than curling the backend again,
+# is what proves the whole chain works the way a browser will use it.
 for attempt in $(seq 1 15); do
     if curl -sf http://127.0.0.1/auth/csrf/ > /dev/null; then
         echo "frontend: API reachable through nginx on :80/auth/csrf/"

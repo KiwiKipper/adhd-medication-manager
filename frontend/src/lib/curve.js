@@ -1,13 +1,10 @@
 // Chart helpers for the release-curve pages.
 //
-// The curve itself is computed by the pk module: fetchTimeline() in api.js
-// returns `curve: [{ t_h, level }]`, sampled every few minutes from the
-// moment the dose was taken, with `level` as a proportion of that curve's
-// own peak (so 1 is the peak, not a blood concentration). Nothing in this
-// file models anything -- these functions only map pk's samples onto chart
-// coordinates. The hand-drawn DAY_CURVE_BASE_POINTS that used to live here,
-// and the design mock's fixed 6am-midnight axis with it, are gone: the axis
-// now follows the dose the user actually logged.
+// pk computes the curve: fetchTimeline() returns `curve: [{ t_h, level }]`,
+// sampled every few minutes from the dose, with `level` as a proportion of
+// that curve's own peak (1 is the peak, not a blood concentration). Nothing
+// here models anything -- these functions only map those samples onto chart
+// coordinates.
 
 const HOUR_MS = 3_600_000
 
@@ -19,20 +16,18 @@ export function pathFromPoints(points) {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')
 }
 
-// The chart's time axis, in real clock time: from the whole hour at or
-// before the dose to the whole hour at or after the last sample. Hour
-// boundaries make the tick labels land on round times, and anchoring to the
-// dose (rather than the mock's fixed 6am-midnight window) means a dose taken
-// at 6am and one taken at 2pm are both fully on screen.
+// The chart's time axis, in real clock time: the whole hour at or before the
+// dose to the whole hour at or after the last sample. Hour boundaries keep
+// the tick labels on round times, and anchoring to the dose means a 6am dose
+// and a 2pm one are both fully on screen.
 export function curveAxis(takenAt, curve) {
   const taken = new Date(takenAt)
   const start = new Date(taken)
   start.setMinutes(0, 0, 0)
 
-  // Rounded *up* to the next whole hour, never down: a dose at 08:20 samples
-  // out to 08:20 the next day, and flooring that to 08:00 would push the
-  // last twenty minutes of curve off the end of the axis, where timeToX
-  // clamps it into a false flat line against the right edge.
+  // Up to the next whole hour, never down. A dose at 08:20 samples out to
+  // 08:20 the next day; flooring to 08:00 would push the last twenty minutes
+  // off the axis, where timeToX clamps it into a false flat line.
   const lastHours = curve?.length ? curve[curve.length - 1].t_h : 1
   const end = new Date(taken.getTime() + lastHours * HOUR_MS)
   if (end.getMinutes() || end.getSeconds() || end.getMilliseconds()) {

@@ -132,7 +132,7 @@ correctness is now the bulk of what is left, and the report with it.
       average response rather than a measurement, alongside the nav's
       standing disclaimer. Still to check: the History page's wording, and
       anywhere the report ends up quoting a milestone time.
-- [ ] **Verify timezone handling end to end.** `provisions/common.sh` sets the
+- [ ] **Verify timezone handling end to end.** `scripts/common.sh` sets the
       VMs to `Pacific/Auckland` precisely because a UTC default silently
       shifts every timeline by 12-13 hours. Django's half is confirmed —
       [settings.py:198-202](backend/config/settings.py#L198-L202) has
@@ -149,7 +149,7 @@ that work. `infra/three-vm-v1` restructured that into `db`/`backend`/
 why and how, and the root [README.md](README.md) for the layout as it
 stands now. The remaining items in this section are updated in place.
 
-- [x] **Write `provisions/web.sh`.** Done — gunicorn running the Django API
+- [x] **Write `scripts/frontend.sh`.** Done — gunicorn running the Django API
       behind nginx, with nginx also serving the built Vue SPA so both answer
       on one origin (`:8000`). The script installs Node 22 from NodeSource
       (vite 8 needs >= 20.19), builds the venv, waits for postgres on the db
@@ -166,10 +166,10 @@ stands now. The remaining items in this section are updated in place.
 - [x] **Check `apt-get update` still works on bionic.** Checked on the
       running db VM — bionic is still served from `archive.ubuntu.com` and
       all four suites resolve, so the EOL worry was unfounded and
-      `provisions/common.sh` needs no mirror rewrite. Worth rechecking if a
+      `scripts/common.sh` needs no mirror rewrite. Worth rechecking if a
       provision ever fails at the apt step.
 - [x] **Fix the missing DB schema file.** Done — the `schema.sql` line is
-      gone from [provisions/db.sh](provisions/db.sh) and Django migrations own
+      gone from [scripts/db.sh](scripts/db.sh) and Django migrations own
       the schema. The script now also creates the role/database/pg_hba rule
       only if absent (so `vagrant provision` is rerunnable rather than a
       second-run failure), opens `listen_addresses`, and ends with a real
@@ -191,25 +191,23 @@ stands now. The remaining items in this section are updated in place.
 - [x] **Write the root README.** Done, on `infra/three-vm-v1` —
       [README.md](README.md) now has the three-VM architecture diagram,
       prerequisites, `vagrant up` instructions and what to expect, the
-      seeded demo accounts table, how to run every test suite and
-      `scripts/smoke.sh`, both ways to run it, troubleshooting, and the
-      security note about the checked-in secrets.
+      seeded demo accounts table, how to run every test suite, both ways to
+      run it, troubleshooting, and the security note about the checked-in
+      secrets.
 - [x] **Add `.ua/` to `.gitignore`** (or delete it). Done — the directory is
       gone from the working tree and `git status` is clean.
 - [~] **Verify a clean `vagrant destroy && vagrant up`.** Still partly
       done, now against the new layout: `infra/three-vm-v1`'s restructure,
-      the `pk` fold-in, the seed command, the new `provisions/backend.sh` /
-      `provisions/frontend.sh`, and the Vagrantfile were all verified the
-      ways that don't need a VM — `DB_ENGINE=sqlite manage.py test` (124/124),
-      `manage.py check` with `DJANGO_DEBUG=False`, `npm run build`,
-      `bash -n` on every provisioning script, and `scripts/smoke.sh` run
-      against a real seeded `manage.py runserver` instance standing in for
-      the backend VM. A genuine `vagrant destroy -f && vagrant up` on the
-      new three-node Vagrantfile has not been run — VirtualBox's host-only
-      networking needs an interactive admin-elevated setup on first use,
-      which wasn't available in the session that did this work. That run,
-      plus a pass of `scripts/smoke.sh` against the real stack, is the one
-      thing left to confirm before calling this done.
+      the `pk` fold-in, the seed command, the new `scripts/backend.sh` /
+      `scripts/frontend.sh`, and the Vagrantfile were all verified the
+      ways that don't need a VM — `DB_ENGINE=sqlite manage.py test`,
+      `manage.py check` with `DJANGO_DEBUG=False`, `npm run build`, and
+      `bash -n` on every provisioning script. A genuine `vagrant destroy -f
+      && vagrant up` on the new three-node Vagrantfile has not been run —
+      VirtualBox's host-only networking needs an interactive admin-elevated
+      setup on first use, which wasn't available in the session that did
+      this work. That run is the one thing left to confirm before calling
+      this done.
 - [x] **Document both ways to run it** (in the README). Done — see the
       README's "Getting started" (the three VMs) and "Running it without
       the VMs" (host-side `runserver` + `npm run dev`, both pointed at the

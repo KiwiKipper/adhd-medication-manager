@@ -3,14 +3,10 @@ export const MAX_ATTEMPTS = 3
 export const TIMEOUT_ERROR = "ETIMEDOUT"
 
 const api = axios.create({
-  // Empty string -- i.e. the same origin the page was loaded from. nginx on
-  // the frontend VM serves this SPA and proxies /api/, /auth/, /admin/ and
-  // /static/ to the backend VM from that one origin (see
-  // frontend/deploy/frontend.nginx.conf), so the browser never makes a
-  // cross-origin request and there is no host/port to hardcode. Set
-  // VITE_API_BASE to point a locally-run `npm run dev`/`vite build` at a
-  // different backend (vite.config.js's dev proxy covers the common case of
-  // just running against a local Django instead).
+  // Empty string means the page's own origin. nginx on the frontend VM
+  // serves the SPA and proxies the API paths from there, so there's no
+  // host/port to hardcode and no cross-origin request. VITE_API_BASE points
+  // a local build at a different backend.
   baseURL: import.meta.env.VITE_API_BASE ?? "",
   withCredentials: true,
   withXSRFToken: true,
@@ -157,13 +153,12 @@ export async function addNote(text, { date, flagged } = {}) {
   return response.data
 }
 
-// Fetch today's release-curve timeline for the current user's active
-// medication -- computed by the pk module, not here. Requires a dose to
-// already be logged for today (pass an ISO-8601 timestamp with a UTC offset
-// as `takenAt` to ask about a different moment instead), and optionally a
-// catalogue id as `medicationId` to preview a medication the user hasn't
-// selected, which is how the Medications page draws its release shape.
+// Today's release-curve timeline for the active medication, computed by pk.
+// Needs a dose logged today, unless `takenAt` (ISO-8601 with a UTC offset)
+// asks about another moment. `medicationId` previews a medication the user
+// hasn't selected, which is how the Medications page draws its shape.
 // Returns { taken_at, events: [{ at, label }], curve: [{ t_h, level }], ... }
+// A 400 carries an `error` explaining which of those preconditions failed.
 export async function fetchTimeline(takenAt, medicationId) {
   const params = {}
   if (takenAt) params.taken_at = takenAt
@@ -172,9 +167,9 @@ export async function fetchTimeline(takenAt, medicationId) {
   return response.data
 }
 
-// Fetch adherence stats over the last `days` days (default 14) for the
-// current user's active medication -- on-time/late/missed classification,
-// streak and adherence percentage are computed by the pk module, not here.
+// Adherence over the last `days` days (default 14) for the active
+// medication. pk does the on-time/late/missed classification, the streak and
+// the percentage.
 // Returns { days: [{ date, status, minutes_late? }], adherence, streak_days, missed, of, ... }
 export async function fetchAdherence(days) {
   const response = await api.get("/api/adherence/", { params: days ? { days } : undefined })

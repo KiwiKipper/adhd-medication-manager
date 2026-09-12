@@ -11,27 +11,23 @@ class Medication(models.Model):
     id = models.SlugField(primary_key=True, max_length=64)
     name = models.CharField(max_length=100)
 
-    # Descriptive copy shown on the Medications page. It lived in the
-    # frontend's lib/placeholderData.js until the page went off mock data;
-    # it is the project's own wording, and like pk_components below it still
-    # needs checking against a real source before it counts as sourced.
+    # Copy shown on the Medications page. Still the project's own wording --
+    # like pk_components below, it needs checking against a real source.
     blurb = models.CharField(max_length=255, blank=True, default="")
     description = models.TextField(blank=True, default="")
     # "methylphenidate-class stimulant" and so on. A field rather than a
-    # frontend lookup table because it is a fact about the medication, and
-    # getting it wrong (the design mock labelled all five methylphenidate)
-    # is a medical error, not a styling one.
+    # frontend lookup table because it's a fact about the medication --
+    # getting it wrong is a medical error, not a styling one. (The design
+    # mock labelled all five as methylphenidate.)
     drug_class = models.CharField(max_length=100, blank=True, default="")
 
-    # Sent straight through to pk's POST /timeline as the `components` list:
-    # [{"fraction", "delay_h", "ka", "ke" or "half_life_h"}, ...]. web never
-    # does the maths itself -- it only stores and forwards these parameters.
+    # Passed straight to pk as its `components` list:
+    # [{"fraction", "delay_h", "ka", "ke" or "half_life_h"}, ...]. tracker
+    # stores and forwards these; it never does the maths.
     #
-    # TODO(you): these are illustrative placeholder shapes (one component for
-    # immediate-release, two for extended-release), not real pharmacokinetics
-    # -- see pk/README.md's "Medication defaults" TODO. Replace with values
-    # sourced from Medsafe or the NZ Formulary and fill in source/source_url/
-    # retrieved below before presenting this as real data.
+    # TODO(you): illustrative placeholder shapes, not real pharmacokinetics.
+    # Replace with values from Medsafe or the NZ Formulary and fill in
+    # source/source_url/retrieved before presenting this as real data.
     pk_components = models.JSONField(default=list, blank=True)
     source = models.CharField(max_length=255, blank=True, default="")
     source_url = models.URLField(blank=True, default="")
@@ -52,9 +48,8 @@ class UserMedication(models.Model):
     )
     is_active = models.BooleanField(default=True)
     selected_at = models.DateTimeField(auto_now_add=True)
-    # The daily dose time doses are compared against when pk classifies a day
-    # on_time/late/missed. Set from the Medications page's time picker; 8am
-    # is only the default for a selection that has never been given one.
+    # What a dose is compared against when pk classifies a day. Set from the
+    # Medications page's time picker; 8am is only the starting default.
     scheduled_time = models.TimeField(default=datetime.time(8, 0))
 
     class Meta:
@@ -104,13 +99,12 @@ class Note(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notes",
     )
     text = models.TextField()
-    # The day the note is *about*, which is not always the day it was typed --
-    # a note written at 1am belongs to the day whose dose it describes. Kept
-    # separate from created_at so per-day lookup (and, later, placing notes on
-    # the curve) asks about the right day.
+    # The day the note is *about*, which isn't always the day it was typed:
+    # one written at 1am belongs to the day whose dose it describes. Separate
+    # from created_at so per-day lookup asks about the right day.
     date = models.DateField(default=timezone.localdate)
-    # Marks a note the user wants to stand out -- a bad reaction, a skipped
-    # dose, something to raise with a prescriber.
+    # A note the user wants to stand out: a bad reaction, a skipped dose,
+    # something to raise with a prescriber.
     flagged = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

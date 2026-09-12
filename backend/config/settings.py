@@ -35,9 +35,9 @@ def env_list(name, default):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-# Everything below that differs between a laptop and the backend VM is driven by
-# an environment variable, with a default that keeps `manage.py runserver`
-# working out of the box. provisions/backend.sh sets these in the gunicorn unit.
+# Anything that differs between a laptop and the backend VM is read from the
+# environment, with a default that keeps `manage.py runserver` working out of
+# the box. scripts/backend.sh sets these in the gunicorn unit.
 
 # SECURITY WARNING: keep the secret key used in production secret! The
 # fallback is a development-only key -- set DJANGO_SECRET_KEY on the VM.
@@ -49,11 +49,9 @@ SECRET_KEY = os.environ.get(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', True)
 
-# Django refuses to serve with DEBUG off and an empty ALLOWED_HOSTS, so the
-# default covers localhost, this VM's own private-network address, and the
-# frontend VM's -- nginx there proxies requests here carrying whatever Host
-# the browser actually sent (see frontend/deploy/proxy_params_backend), so
-# that address has to be allowed too.
+# Django refuses to serve with DEBUG off and an empty ALLOWED_HOSTS. nginx on
+# the frontend VM forwards whatever Host the browser sent (see
+# frontend/deploy/proxy_params_backend), so its address has to be here too.
 ALLOWED_HOSTS = env_list(
     'DJANGO_ALLOWED_HOSTS',
     ['localhost', '127.0.0.1', '192.168.56.11', 'backend', '192.168.56.12', 'frontend'],
@@ -129,7 +127,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-# The db VM (192.168.56.10) runs postgres; provisions/db.sh creates the
+# The db VM (192.168.56.10) runs postgres; scripts/db.sh creates the
 # `adhd` database and role, and Django migrations own the schema. Credentials
 # come from the environment so nothing secret lives in the repo.
 #

@@ -1,20 +1,18 @@
 """The only place tracker touches the pk maths.
 
-pk (backend/pk/) is a plain Python package -- no Django import, no I/O -- so
-this is an in-process call, not a network one. Views should go through
-compute_timeline / compute_adherence / classify_dose rather than importing
-pk.model directly, so every call is validated and turned into a readable
-error the same way, and so there is exactly one place that decides
-on-time/late (see classify_dose).
+backend/pk/ is a plain Python package -- no Django, no I/O -- so these are
+in-process calls. Views should come through here rather than import pk.model
+directly, so every call is validated and fails the same readable way, and so
+only one place decides on-time/late.
 """
 
 from django.utils import timezone
 
 from pk import config, model
 
-# Included on every timeline/adherence response, so it's visible on the wire
-# that these numbers are computed, not measured, and which version of the
-# maths produced them -- the same fields pk's old HTTP responses carried.
+# On every timeline/adherence response, so it's visible on the wire that
+# these numbers are computed rather than measured, and which version of the
+# maths produced them.
 IDENTITY = {"computed_by": "backend.pk", "model_version": config.MODEL_VERSION}
 
 

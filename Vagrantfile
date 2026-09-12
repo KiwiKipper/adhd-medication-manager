@@ -1,30 +1,18 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
-# Three nodes on a host-only private network, one per tier: db, backend
-# (the Django API), frontend (nginx + the built Vue SPA). Host-only
-# addressing must stay inside 192.168.56.0/21 -- VirtualBox refuses other
-# ranges by default.
+# Three VMs, one per tier: db (postgres), backend (Django API), frontend
+# (nginx + the built Vue SPA).
 #
-# The host itself sits on this network as 192.168.56.1, so postgres on db
-# and the API on backend are reachable from the host directly, with no port
-# forwarding. The forwarded ports below exist only for the browser-facing
-# entry point (and one debug port straight at the API).
+# The IPs have to stay inside 192.168.56.0/21 or VirtualBox refuses them.
+# The host sits on this network as 192.168.56.1, so postgres and the API are
+# reachable from the host without port forwarding; the forwarded ports below
+# are only for the browser entry point and one debug port at the API.
 #
-# All three nodes run bento/ubuntu-24.04 (Python 3.12, Django 6.1's
-# requirement) with one exception worth naming: there used to be a fourth
-# node here, pk, pinned to 18.04 because it ran a second, older Django. pk's
-# maths is now an in-process package inside backend/ -- see backend/pk/ --
-# so that node, its box, and its separate Django are gone, not just
-# relocated.
-#
-# Defined in boot order, which matters here: backend's provision waits for
-# postgres before running migrations, and frontend's waits for the backend
-# API before its health check, so each node coming up after the one it
-# depends on means a plain `vagrant up` mostly just works without every
-# script re-polling from a cold start. Each script still waits rather than
-# assumes, because `vagrant up <single-node>` and `vagrant provision
-# <single-node>` both skip that ordering entirely.
+# Boot order matters. backend's provision waits for postgres before running
+# migrations, and frontend's waits for the API, so a plain `vagrant up` in
+# this order mostly just works. Each script still polls rather than assumes,
+# because `vagrant up <one-node>` skips the ordering entirely.
 
 Vagrant.configure("2") do |config|
 
@@ -43,9 +31,8 @@ Vagrant.configure("2") do |config|
       :ip => "192.168.56.11",
       :ssh_port => 2201,
       :memory => 1024,
-      # Not needed by the app -- frontend's nginx reaches this VM over the
-      # private network. Here so the API can be curled from the host while
-      # debugging, without going through nginx on the frontend VM.
+      # Only so the API can be curled from the host while debugging. The app
+      # doesn't need it: nginx reaches this VM over the private network.
       :forwarded => [{ :guest => 8000, :host => 8001 }],
     },
     {
@@ -53,17 +40,12 @@ Vagrant.configure("2") do |config|
       :box => "bento/ubuntu-24.04",
       :ip => "192.168.56.12",
       :ssh_port => 2202,
-      # 1024 is enough to run nginx but not to build the SPA: `npm ci` plus
-      # a vite production build is the memory high-water mark of the whole
-      # project and gets OOM-killed on 1GB.
+      # 2048 because `npm ci` plus a vite production build gets OOM-killed
+      # on 1GB. nginx alone would be fine on less.
       :memory => 2048,
-      # The entry point. nginx on the guest serves the SPA and proxies the
-      # API to the backend VM, both from port 80. The host port doesn't
-      # have to be 8000 -- frontend/src/api.js's baseURL is the page's own
-      # origin, not a hardcoded host:port -- but 8000 is the conventional
-      # choice and what the README documents; auto_correct below means a
-      # busy host port 8000 shifts rather than failing the whole `vagrant
-      # up`, and the app still works on whatever port it lands on.
+      # The entry point: nginx serves the SPA and proxies the API, both on
+      # port 80. The host port doesn't have to be 8000 (api.js uses the
+      # page's own origin), but that's what the README says to use.
       :forwarded => [{ :guest => 80, :host => 8000 }],
     },
   ]
@@ -76,16 +58,17 @@ Vagrant.configure("2") do |config|
       node.vm.network "forwarded_port", guest: 22, host: machine[:ssh_port], id: "ssh"
 
       machine[:forwarded].each do |port|
-        # auto_correct so a host port already in use shifts rather than
-        # failing the whole `vagrant up`. Watch for the correction warning
-        # if you want the app specifically at :8000 -- it still works on
-        # whatever port it lands on either way.
+        # auto_correct so a busy host port shifts instead of failing the
+        # whole `vagrant up`. Watch for the warning if you want :8000
+        # specifically.
         node.vm.network "forwarded_port",
                         guest: port[:guest], host: port[:host], auto_correct: true
       end
 
-      node.vm.provision "shell", path: "provisions/common.sh"
-      node.vm.provision "shell", path: "provisions/#{machine[:hostname]}.sh"
+      # The per-node script name comes from the hostname, so scripts/ must
+      # hold db.sh, backend.sh and frontend.sh under exactly those names.
+      node.vm.provision "shell", path: "scripts/common.sh"
+      node.vm.provision "shell", path: "scripts/#{machine[:hostname]}.sh"
 
       node.vm.provider :virtualbox do |vb|
         vb.name = machine[:hostname]

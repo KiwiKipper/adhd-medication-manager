@@ -46,7 +46,7 @@ Three VMs, one per tier, all `bento/ubuntu-24.04`:
   plain Python package with no Django import of its own, called in-process
   -- not a separate service). Owns the schema on the db VM.
 - **db** -- PostgreSQL. Django's migrations own the schema entirely;
-  `provisions/db.sh` only creates the role, the database, and opens it to
+  `scripts/db.sh` only creates the role, the database, and opens it to
   the private network.
 
 The host sits on the host-only network as `192.168.56.1`, so `db` and
@@ -84,18 +84,21 @@ not just "the process started") and fail loudly rather than leaving a green
 
 Open **http://localhost:8000** and sign in with one of the seeded accounts:
 
-| Username | Password | Medication | Scheduled | What it shows |
+| Username | Password | Medication | Scheduled | Role |
 |---|---|---|---|---|
-| `ada` | `dose-demo-2026` | Concerta 36mg | 08:00 | Ten days of history including a dose logged today -- Today, Day curve, History and Notes all have real content from the first load. |
-| `sam` | `dose-demo-2026` | Ritalin LA 20mg | 07:30 | Nine days of history, but **no dose logged today** -- demonstrates the take-dose flow. |
+| `admin` | `password` | Vyvanse 30mg | 08:00 | Superuser, so this one also gets you into `/admin/`. |
+| `dev1` | `firstpassword` | Dexamfetamine 5mg | 07:30 | Ordinary account. |
 
-There's also an `admin` superuser (same password) for `/admin/`.
+Both have ten days of history including a dose logged today, so Today, Day
+curve, History and Notes all have real content from the first load. The ten
+days are a mix of on-time and late doses with one missed day each, which is
+what gives the adherence percentage and the streak something to report.
 
 This data comes from `backend/tracker/management/commands/seed_demo.py`,
-run automatically by `provisions/backend.sh` on every provision. It's
+run automatically by `scripts/backend.sh` on every provision. It's
 idempotent -- an existing demo account is left alone, so a routine
 `vagrant provision backend` never wipes anything logged against a demo
-account by hand. To wipe and regenerate all three demo accounts instead:
+account by hand. To wipe and regenerate both accounts instead:
 
 ```
 SEED_RESET=1 vagrant provision backend
@@ -118,22 +121,14 @@ No VM, no postgres, and no running backend required -- `DB_ENGINE=sqlite`
 switches to a throwaway local database for the run. This covers the
 `tracker` and `users` apps, the `pk` release-curve/adherence module
 (`backend/pk/tests/`, which also runs completely standalone with no Django
-install: `python -m unittest discover -s pk/tests -t .`), and the seed
+install: `cd backend && python -m unittest discover -s pk/tests -t .`), and the seed
 command (`backend/tracker/tests_seed.py`).
 
-After `vagrant up`, check the running stack end to end from the host:
-
-```
-scripts/smoke.sh
-```
-
-Logs in as `ada` and walks every page the frontend calls on load --
-medication selection, dose history, the release-curve maths, adherence
-classification, notes, the single-page app's client-side routing, and a
-static asset served through the proxy. A pass means nginx, the proxy to the
-backend VM, gunicorn, Django, `pk`, and postgres are all actually working
-together. Point it elsewhere with `BASE=http://192.168.56.12 scripts/smoke.sh`.
-Needs `curl` and a Python 3 interpreter; no other dependency.
+After `vagrant up`, the end-to-end check is the provisioning health checks
+themselves: `backend` and `frontend` each make a real HTTP request through
+the full stack before reporting success, so a green `vagrant up` already
+means nginx, the proxy, gunicorn, Django, `pk` and postgres all work
+together.
 
 ## Running it without the VMs
 
