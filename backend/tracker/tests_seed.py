@@ -20,10 +20,22 @@ class SeedDemoTests(TestCase):
     def setUp(self):
         call_command("seed_demo")
 
-    def test_creates_the_three_demo_accounts(self):
-        self.assertTrue(User.objects.filter(username="ada").exists())
-        self.assertTrue(User.objects.filter(username="sam").exists())
+    def test_creates_both_demo_accounts(self):
         self.assertTrue(User.objects.filter(username="admin", is_superuser=True).exists())
+        self.assertTrue(User.objects.filter(username="dev1").exists())
+
+    def test_the_documented_passwords_work(self):
+        self.assertTrue(self.client.login(username="admin", password="password"))
+        self.assertTrue(self.client.login(username="dev1", password="firstpassword"))
+
+    def test_accounts_are_on_the_documented_medications(self):
+        admin = UserMedication.objects.get(user__username="admin")
+        self.assertEqual(admin.medication_id, "vyvanse")
+        self.assertEqual(admin.scheduled_time, datetime.time(8, 0))
+
+        dev1 = UserMedication.objects.get(user__username="dev1")
+        self.assertEqual(dev1.medication_id, "dexamf")
+        self.assertEqual(dev1.scheduled_time, datetime.time(7, 30))
 
     def test_running_twice_does_not_duplicate_anything(self):
         before = (
@@ -37,57 +49,63 @@ class SeedDemoTests(TestCase):
         )
         self.assertEqual(before, after)
 
-    def test_ada_has_nine_dose_rows_across_ten_distinct_dates_including_today(self):
-        ada = User.objects.get(username="ada")
-        doses = Dose.objects.filter(user=ada)
-        self.assertEqual(doses.count(), 9)
-
-        dates = set(doses.values_list("date", flat=True))
-        self.assertEqual(len(dates), 9)  # one row per date, no duplicates
+    def test_each_account_has_nine_doses_in_a_ten_day_window_including_today(self):
         today = timezone.localdate()
-        self.assertIn(today, dates)
         oldest = today - datetime.timedelta(days=9)
-        self.assertTrue(all(oldest <= d <= today for d in dates))
-        # The one gap in ada's ten-day window (days_ago=4) has no row at all.
-        self.assertNotIn(today - datetime.timedelta(days=4), dates)
+        # The one missed day in each account's window has no row at all.
+        for username, gap_days_ago in (("admin", 4), ("dev1", 3)):
+            with self.subTest(user=username):
+                doses = Dose.objects.filter(user__username=username)
+                self.assertEqual(doses.count(), 9)
 
-    def test_todays_dose_for_ada_is_not_in_the_future(self):
-        ada = User.objects.get(username="ada")
-        today_dose = Dose.objects.get(user=ada, date=timezone.localdate())
-        self.assertLessEqual(today_dose.taken_at, timezone.now())
+                dates = set(doses.values_list("date", flat=True))
+                self.assertEqual(len(dates), 9)  # one row per date, no duplicates
+                self.assertIn(today, dates)
+                self.assertTrue(all(oldest <= d <= today for d in dates))
+                self.assertNotIn(today - datetime.timedelta(days=gap_days_ago), dates)
 
-    def test_sam_has_no_dose_logged_today(self):
-        sam = User.objects.get(username="sam")
-        self.assertFalse(Dose.objects.filter(user=sam, date=timezone.localdate()).exists())
-        self.assertEqual(Dose.objects.filter(user=sam).count(), 8)
+    def test_todays_dose_is_never_in_the_future(self):
+        for username in ("admin", "dev1"):
+            with self.subTest(user=username):
+                dose = Dose.objects.get(user__username=username, date=timezone.localdate())
+                self.assertLessEqual(dose.taken_at, timezone.now())
 
     def test_every_doses_status_matches_classify_dose(self):
-        for user in ("ada", "sam"):
-            selection = UserMedication.objects.get(user__username=user)
-            for dose in Dose.objects.filter(user__username=user):
+        for username in ("admin", "dev1"):
+            selection = UserMedication.objects.get(user__username=username)
+            for dose in Dose.objects.filter(user__username=username):
                 expected = classify_dose(selection.scheduled_time, dose.taken_at)
-                with self.subTest(user=user, date=dose.date):
+                with self.subTest(user=username, date=dose.date):
                     self.assertEqual(dose.status, expected)
 
-    def test_ada_has_two_flagged_notes_among_eight(self):
-        ada = User.objects.get(username="ada")
-        notes = Note.objects.filter(user=ada)
-        self.assertEqual(notes.count(), 8)
-        self.assertEqual(notes.filter(flagged=True).count(), 2)
+    def test_the_history_is_a_mix_of_on_time_and_late(self):
+        # A run of identical statuses would leave the History page and the
+        # adherence percentage with nothing to show.
+        for username in ("admin", "dev1"):
+            with self.subTest(user=username):
+                statuses = set(
+                    Dose.objects.filter(user__username=username)
+                    .values_list("status", flat=True)
+                )
+                self.assertIn(Dose.Status.ON_TIME, statuses)
+                self.assertIn(Dose.Status.LATE, statuses)
 
-    def test_sam_has_three_notes(self):
-        sam = User.objects.get(username="sam")
-        self.assertEqual(Note.objects.filter(user=sam).count(), 3)
+    def test_notes_include_flagged_ones(self):
+        for username, total in (("admin", 7), ("dev1", 4)):
+            with self.subTest(user=username):
+                notes = Note.objects.filter(user__username=username)
+                self.assertEqual(notes.count(), total)
+                self.assertEqual(notes.filter(flagged=True).count(), 2)
 
     def test_reset_regenerates_after_a_manual_change(self):
-        ada = User.objects.get(username="ada")
-        Note.objects.create(user=ada, text="an extra note a marker typed in")
-        self.assertEqual(Note.objects.filter(user=ada).count(), 9)
+        admin = User.objects.get(username="admin")
+        Note.objects.create(user=admin, text="an extra note a marker typed in")
+        self.assertEqual(Note.objects.filter(user=admin).count(), 8)
 
         call_command("seed_demo", reset=True)
 
-        ada = User.objects.get(username="ada")  # re-fetch: --reset recreates the row
-        self.assertEqual(Note.objects.filter(user=ada).count(), 8)
+        admin = User.objects.get(username="admin")  # --reset recreates the row
+        self.assertEqual(Note.objects.filter(user=admin).count(), 7)
 
     def test_reset_does_not_touch_a_non_demo_user(self):
         marker = User.objects.create_user(username="marker", password="not-a-demo-account")
