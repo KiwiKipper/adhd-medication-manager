@@ -73,6 +73,24 @@ export async function login(username, password) {
  
 }
  
+// Create an account and start a session for it, so registering signs you in
+// without a second round trip. `email` is optional to the API, but without one
+// the account can only ever sign in by username -- login() accepts either.
+//
+// A 400 here carries DRF's per-field errors, e.g.
+// { password: ["This password is too common."] }, not a flat message.
+export async function register(username, email, password) {
+  const response = await api.post(
+    "/auth/register/",
+    {
+      username,
+      email,
+      password,
+    }
+  )
+  return response.data
+}
+
 // End the current session
 export async function logout() {
   const response = await api.post(

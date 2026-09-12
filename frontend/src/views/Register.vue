@@ -1,17 +1,21 @@
 <script setup>
+// Create an account. The API signs the new user in as part of registering, so
+// this goes straight to /today afterwards rather than bouncing via the login
+// page. Deliberately mirrors Login.vue's layout so the two read as one flow.
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   TIMEOUT_ERROR,
   MAX_ATTEMPTS,
   withRetry,
-  login,
+  register,
   fetchCsrfCookie
 } from '@/api.js'
 import { loadUser } from '@/stores/auth.js'
 
 const router = useRouter()
 
+const username = ref('')
 const email = ref('')
 const password = ref('')
 const error = ref('')
@@ -22,23 +26,33 @@ onMounted(async () => {
     await withRetry(MAX_ATTEMPTS, fetchCsrfCookie)
   } catch (err) {
     console.error('Unable to get CSRF cookie:', err)
-    error.value = 'Unable to connect to server. Try logging in later.'
+    error.value = 'Unable to connect to server. Try again later.'
   }
 })
+
+// A rejected registration answers with DRF's per-field errors --
+// { password: ["This password is too common."], username: [...] } -- so unlike
+// signing in there is a real reason to show, and showing it matters: "too
+// common" tells you to pick a better password, a generic failure doesn't.
+function messageFor(data) {
+  if (!data || typeof data !== 'object') return null
+  const messages = Object.values(data).flat().filter((m) => typeof m === 'string')
+  return messages.length ? messages.join(' ') : null
+}
 
 async function handleSubmit() {
   loading.value = true
   error.value = ''
 
   try {
-    await login(email.value, password.value)
+    await register(username.value, email.value, password.value)
     await loadUser()
     router.push('/today')
   } catch (err) {
     if (err.code === TIMEOUT_ERROR) {
       error.value = 'The server took too long to respond.'
-    } else if (err.response?.status === 401) {
-      error.value = 'Incorrect username/email or password.'
+    } else if (err.response?.status === 400) {
+      error.value = messageFor(err.response.data) ?? 'Check your details and try again.'
     } else if (err.response?.status === 403) {
       error.value = 'Request was rejected. Please refresh and try again.'
     } else {
@@ -61,15 +75,27 @@ async function handleSubmit() {
       <div class="login-form-wrap">
         <form class="login-form" @submit.prevent="handleSubmit">
           <div class="field">
-            <label for="email">Username or email</label>
+            <label for="username">Username</label>
             <input
-              id="email"
-              v-model="email"
+              id="username"
+              v-model="username"
               type="text"
-              placeholder="you@example.com"
+              placeholder="yourname"
               autocomplete="username"
               required
             />
+          </div>
+
+          <div class="field">
+            <label for="email">Email <span class="field-optional">optional</span></label>
+            <input
+              id="email"
+              v-model="email"
+              type="email"
+              placeholder="you@example.com"
+              autocomplete="email"
+            />
+            <p class="field-hint">Add one and you can sign in with either.</p>
           </div>
 
           <div class="field">
@@ -79,7 +105,7 @@ async function handleSubmit() {
               v-model="password"
               type="password"
               placeholder="••••••••"
-              autocomplete="current-password"
+              autocomplete="new-password"
               required
             />
           </div>
@@ -87,13 +113,13 @@ async function handleSubmit() {
           <p v-if="error" class="error-msg" role="alert">{{ error }}</p>
 
           <button type="submit" class="submit-btn" :disabled="loading">
-            {{ loading ? 'Signing in…' : 'Sign in' }}
+            {{ loading ? 'Creating account…' : 'Create account' }}
           </button>
         </form>
 
         <p class="alt-action">
-          Don't have an account?
-          <router-link to="/register">Create one</router-link>
+          Already have an account?
+          <router-link to="/login">Sign in</router-link>
         </p>
 
         <div class="disclaimer">
@@ -167,6 +193,17 @@ async function handleSubmit() {
 
 .field label {
   font: 500 12px/1 'Inter', sans-serif;
+  color: var(--fg-muted);
+}
+
+.field-optional {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.field-hint {
+  margin: 0;
+  font: 400 12px/1.4 'Inter', sans-serif;
   color: var(--fg-muted);
 }
 
@@ -247,5 +284,4 @@ async function handleSubmit() {
   font: 400 13px/1.55 'Inter', sans-serif;
   color: var(--fg);
 }
-
 </style>

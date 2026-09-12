@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '@/views/Login.vue'
+import Register from '@/views/Register.vue'
 import Today from '@/views/user/Today.vue'
 import Curve from '@/views/user/Curve.vue'
 import Medications from '@/views/user/Medications.vue'
@@ -13,6 +14,7 @@ const router = createRouter({
         /* ---- public ---- */
         { path: '/', redirect: '/login' },
         { path: '/login', name: 'login', component: Login },
+        { path: '/register', name: 'register', component: Register },
 
         /* ---- user ---- */
         { path: '/today', name: 'today', component: Today, meta: { requiresAuth: true } },
@@ -24,8 +26,8 @@ const router = createRouter({
 })
  
 router.beforeEach(async (to) => {
-    // Bounce an already-authenticated user straight past the login page.
-    if (to.name === 'login') {
+    // Bounce an already-authenticated user straight past the signed-out pages.
+    if (to.name === 'login' || to.name === 'register') {
         const user = auth.user ?? await loadUser()
         return user ? '/today' : true
     }

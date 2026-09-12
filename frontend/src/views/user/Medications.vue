@@ -16,7 +16,14 @@ import {
 const loading = ref(true)
 const loadError = ref('')
 const medications = ref([])
-const selectedId = ref(null)
+
+// Two separate ideas, deliberately. `viewingId` is whichever medication's
+// details are on screen; `activeId` is the one that's actually yours. They
+// used to be a single ref, which meant clicking a row to read about it also
+// switched your medication -- so you couldn't compare two without changing
+// what every other page classifies your doses against.
+const viewingId = ref(null)
+const activeId = ref(null)
 const saving = ref(false)
 const saveError = ref('')
 
@@ -38,7 +45,10 @@ onMounted(async () => {
   try {
     const [catalogue, mine] = await Promise.all([fetchMedications(), fetchMyMedication()])
     medications.value = catalogue
-    selectedId.value = mine.medication?.id ?? catalogue[0]?.id ?? null
+    activeId.value = mine.medication?.id ?? null
+    // Someone who hasn't picked a medication yet still opens on something
+    // readable, rather than an empty detail panel.
+    viewingId.value = activeId.value ?? catalogue[0]?.id ?? null
     if (mine.scheduled_time) {
       scheduledTime.value = mine.scheduled_time
       savedScheduledTime.value = mine.scheduled_time
@@ -50,23 +60,37 @@ onMounted(async () => {
   }
 })
 
-// Looked up whenever `selectedId` changes; `computed()` caches the result and
+// Looked up whenever `viewingId` changes; `computed()` caches the result and
 // only recalculates when something it reads changes.
-const selectedMed = computed(
-  () => medications.value.find((m) => m.id === selectedId.value) ?? null
+const viewedMed = computed(
+  () => medications.value.find((m) => m.id === viewingId.value) ?? null
 )
 
-// Clicking a row both previews it here and sets it as the active medication —
-// there's no separate "confirm" step in the design mock, a click does both.
-async function selectMed(id) {
-  const previous = selectedId.value
-  selectedId.value = id
+// Is the medication on screen the one that's actually yours?
+const viewingIsActive = computed(
+  () => viewingId.value !== null && viewingId.value === activeId.value
+)
+
+// Reading only. No API call, so browsing the catalogue costs nothing and
+// changes nothing.
+function viewMed(id) {
+  viewingId.value = id
+  saveError.value = ''
+}
+
+// The explicit commit: makes the medication you're reading the one that's
+// yours. Rolls back on failure so the page can't claim a selection the server
+// didn't accept.
+async function confirmSelection() {
+  if (viewingId.value === null || saving.value) return
+  const previous = activeId.value
   saveError.value = ''
   saving.value = true
   try {
-    await selectMedication(id)
+    await selectMedication(viewingId.value)
+    activeId.value = viewingId.value
   } catch {
-    selectedId.value = previous
+    activeId.value = previous
     saveError.value = 'Could not save your selection. Try again.'
   } finally {
     saving.value = false
@@ -118,7 +142,7 @@ async function loadCurve(medicationId, scheduled) {
 // the pair rather than each separately means changing both only refetches
 // once, and the first fetch waits until the catalogue has settled on an id.
 watch(
-  () => [selectedId.value, savedScheduledTime.value],
+  () => [viewingId.value, savedScheduledTime.value],
   ([id, scheduled]) => loadCurve(id, scheduled),
 )
 
@@ -132,7 +156,10 @@ const sparkPath = computed(() => sparkPathFromCurve(curve.value, 120, 44, 3))
   <div v-else class="medications-page">
     <!-- Left column: scrollable list of known medications. A <button> per row
          (rather than a clickable <div>) so the list is keyboard- and
-         screen-reader-accessible for free. -->
+         screen-reader-accessible for free.
+         Two states worth telling apart: `viewing` is the one being read,
+         `active` is the one that's yours. The "Current" badge carries that
+         second meaning in text, so it doesn't rest on colour alone. -->
     <aside class="med-list">
       <div class="list-title">Medications</div>
       <button
@@ -140,30 +167,47 @@ const sparkPath = computed(() => sparkPathFromCurve(curve.value, 120, 44, 3))
         :key="m.id"
         type="button"
         class="med-row"
-        :class="{ active: m.id === selectedId }"
-        :aria-pressed="m.id === selectedId"
-        :disabled="saving"
-        @click="selectMed(m.id)"
+        :class="{ viewing: m.id === viewingId, active: m.id === activeId }"
+        :aria-pressed="m.id === viewingId"
+        @click="viewMed(m.id)"
       >
-        <div class="med-row-name">{{ m.name }}</div>
+        <div class="med-row-head">
+          <div class="med-row-name">{{ m.name }}</div>
+          <span v-if="m.id === activeId" class="med-row-badge">Current</span>
+        </div>
         <div class="med-row-blurb">{{ m.blurb }}</div>
       </button>
     </aside>
 
     <!-- Right column: details for whichever medication is selected. -->
-    <section v-if="selectedMed" class="med-detail">
-      <div>
-        <div class="med-name">{{ selectedMed.name }}</div>
-        <div class="med-class">{{ selectedMed.drug_class || 'stimulant' }}</div>
+    <section v-if="viewedMed" class="med-detail">
+      <div class="med-head">
+        <div>
+          <div class="med-name">{{ viewedMed.name }}</div>
+          <div class="med-class">{{ viewedMed.drug_class || 'stimulant' }}</div>
+        </div>
+
+        <!-- Selecting is an explicit act, so you can read about anything here
+             without it becoming yours. -->
+        <span v-if="viewingIsActive" class="med-current">Your current medication</span>
+        <button
+          v-else
+          type="button"
+          class="med-select-btn"
+          :disabled="saving"
+          @click="confirmSelection"
+        >{{ saving ? 'Saving…' : 'Select this medication' }}</button>
       </div>
 
       <p v-if="saveError" class="med-error" role="alert">{{ saveError }}</p>
 
-      <p class="med-desc">{{ selectedMed.description }}</p>
+      <p class="med-desc">{{ viewedMed.description }}</p>
 
-      <!-- The dose time pk classifies each day against. Its own form so
-           changing it doesn't re-select the medication. -->
-      <form class="schedule-block" @submit.prevent="saveScheduledTime">
+      <!-- The dose time pk classifies each day against. Only shown on the
+           active medication, because it saves to whichever one is yours --
+           offering it while you're reading about another would edit something
+           you aren't looking at. -->
+      <form v-if="viewingIsActive" class="schedule-block" @submit.prevent="saveScheduledTime">
         <div class="schedule-label">Scheduled dose time</div>
         <div class="schedule-row">
           <input
@@ -205,12 +249,12 @@ const sparkPath = computed(() => sparkPathFromCurve(curve.value, 120, 44, 3))
            the page says that instead of implying a citation exists. -->
       <div class="source-block">
         <span class="source-icon">§</span>
-        <p v-if="selectedMed.source" class="source-text">
-          {{ selectedMed.source }}
-          <a v-if="selectedMed.source_url" :href="selectedMed.source_url" target="_blank" rel="noopener">
+        <p v-if="viewedMed.source" class="source-text">
+          {{ viewedMed.source }}
+          <a v-if="viewedMed.source_url" :href="viewedMed.source_url" target="_blank" rel="noopener">
             source
           </a>
-          <span v-if="selectedMed.retrieved"> · retrieved {{ selectedMed.retrieved }}</span>
+          <span v-if="viewedMed.retrieved"> · retrieved {{ viewedMed.retrieved }}</span>
         </p>
         <p v-else class="source-text">
           No published source recorded for this medication yet — its curve parameters and
@@ -268,13 +312,33 @@ const sparkPath = computed(() => sparkPathFromCurve(curve.value, 120, 44, 3))
   color: inherit;
 }
 
+/* The one that's yours. */
 .med-row.active {
   background: var(--accent-soft);
 }
 
-.med-row:disabled {
-  cursor: default;
-  opacity: 0.7;
+/* The one being read. An outline rather than a fill, so a row that is both
+   still shows the active background underneath. */
+.med-row.viewing {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.med-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.med-row-badge {
+  flex: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-radius: 20px;
+  padding: 2px 8px;
+  font: 600 10.5px 'Inter', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .med-row-name {
@@ -299,9 +363,44 @@ const sparkPath = computed(() => sparkPathFromCurve(curve.value, 120, 44, 3))
   max-width: 640px;
 }
 
+/* Title on the left, the select action on the right. Wraps rather than
+   squashing the button on a narrow window. */
+.med-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .med-name {
   font: 700 26px 'Inter', sans-serif;
   color: var(--fg);
+}
+
+.med-select-btn {
+  flex: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font: 600 14px 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+.med-select-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.med-current {
+  flex: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 20px;
+  padding: 7px 14px;
+  font: 600 12.5px 'Inter', sans-serif;
 }
 
 .med-class {
