@@ -2,7 +2,21 @@
 
 Remaining work to get the project to a submittable v1. Ordered backend →
 frontend → data correctness → infrastructure. Items marked *post-v1* are
-tracked in [web/features.md](web/features.md) and are not blockers.
+tracked in [docs/notes/features.md](docs/notes/features.md) and are not
+blockers.
+
+Last verified against `frontend/v1-pages` at `bf2cc16`, plus the
+`infra/three-vm-v1` branch below, which restructures the three nodes from
+`db`/`pk`/`web` to `db`/`backend`/`frontend`: the `pk` VM and its separate
+Django project are gone, folded into `backend/pk/` as an in-process Python
+package (no HTTP hop, no second Django, one on-time/late rule instead of
+two that could disagree); the Vue SPA gets its own `frontend` VM with
+nginx; and two demo accounts with ten days of history are now seeded
+automatically, so `vagrant up` produces a working, populated app with no
+manual setup. See [docs/v1-three-vm-plan.md](docs/v1-three-vm-plan.md) for
+the full plan this branch followed, including what was deliberately left
+out. Backend, frontend and infrastructure are essentially done. Data
+correctness is now the bulk of what is left, and the report with it.
 
 ## 1. Backend
 
@@ -19,15 +33,25 @@ tracked in [web/features.md](web/features.md) and are not blockers.
       cover the web VM (`192.168.56.12`) alongside localhost, and are
       overridable via `DJANGO_CORS_ORIGINS`/`DJANGO_CSRF_ORIGINS`.
 - [x] **Write tests.** 66 tests across
-      [tracker/tests.py](web/backend/tracker/tests.py) and
-      [users/tests.py](web/backend/users/tests.py): dose logging, the
+      [tracker/tests.py](backend/tracker/tests.py) and
+      [users/tests.py](backend/users/tests.py): dose logging, the
       `/timeline/` and `/adherence/` pk passthroughs (pk patched out), pk
       failure modes, notes, and auth on every endpoint. Run with
-      `DB_ENGINE=sqlite py manage.py test` from `web/backend/`.
-- [x] **pk failure handling.** Confirmed by test: a dead or slow pk VM gives a
-      502 with a readable `error` body, not a 500, and pk's own 400s pass
-      through with their message. A timeout is now reported separately from a
-      refused connection so `PK_SERVICE_TIMEOUT` is the obvious knob.
+      `DB_ENGINE=sqlite py manage.py test` from `backend/`. **Updated on
+      `infra/three-vm-v1`:** pk stopped being a separate HTTP service (see
+      the infra section), so the failure-mode tests this item describes
+      (a dead/slow pk giving a 502) no longer apply and were deleted; the
+      passthrough tests now patch `compute_timeline`/`compute_adherence`
+      instead. The suite is 124 tests now — the difference is pk's own
+      model tests (`backend/pk/tests/`) being discovered automatically,
+      real end-to-end `/api/timeline/` cases absorbed from pk's old
+      endpoint tests, and the seed command's tests.
+- [x] **pk failure handling.** ~~Confirmed by test: a dead or slow pk VM
+      gives a 502...~~ **Superseded on `infra/three-vm-v1`:** there is no
+      longer a pk service to fail — it's an in-process package call, so
+      this failure mode doesn't exist any more. Bad input from pk's own
+      validation still reaches the caller as a 400 either way
+      (`PkInputError` now, not `PkServiceError`).
 - [x] **`Note` model fields.** `date` (the day the note is *about*, defaulting
       to today) and `flagged` added, with a migration that backfills existing
       rows from `created_at`. `GET /notes/?date=YYYY-MM-DD` (or `?date=today`)
@@ -38,24 +62,46 @@ tracked in [web/features.md](web/features.md) and are not blockers.
 
 ## 2. Frontend
 
-- [ ] **Finish the Curve page.** [Curve.vue](web/frontend/src/views/user/Curve.vue)
-      is a 7-line placeholder (`<p>Curve</p>`). This is step 8 of
-      [web/steps.md](web/steps.md) and is still untouched.
-- [ ] **Finish the Notes page.** [Notes.vue](web/frontend/src/views/user/Notes.vue)
-      is the same 7-line placeholder.
-- [ ] **Use pk's real curve data.** [lib/curve.js:2-3](web/frontend/src/lib/curve.js#L2-L3)
-      still draws the hardcoded `DAY_CURVE_BASE_POINTS` design-mock shape even
-      though the timeline/adherence wiring to pk already landed. Feed the
-      chart from the pk `/timeline/` response instead.
-- [ ] **Medications page off placeholder data.**
-      [Medications.vue](web/frontend/src/views/user/Medications.vue) reads
-      `MED_DATA` from [lib/placeholderData.js](web/frontend/src/lib/placeholderData.js)
-      rather than fetching `/medications/`.
-- [ ] **Scheduled dose time picker.** `UserMedication.scheduled_time` defaults
-      everyone to 8am and there is no UI to change it, so on-time/late
-      classification is wrong for anyone not on an 8am dose.
-- [ ] **Retire `placeholderData.js`** once the two items above are done, so
-      nothing ships reading mock data.
+- [x] **Finish the Curve page.** Done — step 8 of
+      [docs/notes/steps.md](docs/notes/steps.md). [Curve.vue](frontend/src/views/user/Curve.vue)
+      draws today's dose as the curve pk computed for it, on a clock-time
+      axis anchored to the logged taken time (not the mock's fixed
+      6am–midnight window), with pk's milestones marked along it, a NOW
+      marker that ticks every minute, and its own states for "no medication
+      selected" and "no dose logged yet". The caption says in words that it
+      is a modelled average response rather than a measurement.
+- [x] **Finish the Notes page.** Done —
+      [Notes.vue](frontend/src/views/user/Notes.vue) lists every note
+      grouped by the day it is *about* (`Note.date`, so a note typed at 1am
+      still belongs to the previous day's dose), with a flagged-only filter
+      and a form that can file a note against an earlier day and flag it.
+      Routed at `/notes` with a nav entry; the Today sidebar now fetches
+      `?date=today` and links here for the rest.
+- [x] **Use pk's real curve data.** Done — `DAY_CURVE_BASE_POINTS` and
+      `dayCurvePath` are gone. [lib/curve.js](frontend/src/lib/curve.js)
+      now only maps pk's `curve: [{ t_h, level }]` samples onto chart
+      coordinates: a polyline through the actual samples, deliberately not a
+      smoothed spline, so nothing is invented between them.
+- [x] **Medications page off placeholder data.** Done — the page fetches
+      `/api/medications/`, and the "release shape" beside a medication is
+      the curve pk computes for it via the new
+      `GET /api/timeline/?medication=<id>`, asked for at the user's own
+      scheduled time. The blurb/description/drug-class copy moved into the
+      catalogue (migrations 0006/0007) rather than living in the frontend.
+- [x] **Scheduled dose time picker.** Done — `GET/POST /api/my-medication/`
+      now carries `scheduled_time`, and the Medications page has a picker
+      for it. Posting a time alone updates the current selection in place
+      (no medication re-select, no new row), and switching medication keeps
+      the time already set. That value is what `/api/adherence/` sends pk to
+      classify against, so on-time/late is no longer wrong for everyone not
+      on an 8am dose.
+- [x] **Retire `placeholderData.js`.** Done — the file is deleted and
+      nothing imports it. Note its per-medication `source` line ("Medsafe
+      consumer medicine information · retrieved 6 Sep 2026") was invented:
+      the catalogue's `source`/`source_url`/`retrieved` are genuinely empty,
+      so the Medications and Curve pages now say no source has been recorded
+      yet rather than displaying a citation that does not exist. Filling
+      them in is the provenance item in section 3.
 - [ ] *post-v1* — extract the inline `<svg>` into a shared `CurveChart.vue`,
       notes overlaid on the curve, History aggregate stats, LLM summaries.
 
@@ -65,47 +111,109 @@ tracked in [web/features.md](web/features.md) and are not blockers.
       documented in-model as *illustrative placeholder shapes, not real
       pharmacokinetics* — one component for immediate-release, two for
       extended-release. See
-      [tracker/models.py:20-25](web/backend/tracker/models.py#L20-L25) and the
-      "Medication defaults" section of [pk/README.md](pk/README.md).
+      [tracker/models.py:20-25](backend/tracker/models.py#L20-L25) and the
+      "Medication defaults" section of [pk/README.md](backend/pk/README.md).
 - [ ] **Populate provenance fields.** `source`, `source_url` and `retrieved`
       are blank on every `Medication`. Fill them from Medsafe or the NZ
       Formulary, and update the seed migration
-      ([0004_seed_pk_components.py](web/backend/tracker/migrations/0004_seed_pk_components.py))
+      ([0004_seed_pk_components.py](backend/tracker/migrations/0004_seed_pk_components.py))
       to match.
-- [ ] **Do not present modelled output as measurement.** The curve is a
-      Bateman-model prediction; make sure the UI copy says so wherever a curve
-      or a milestone time is shown.
-- [ ] **Verify timezone handling end to end.** `provisions/common.sh` sets the
+- [x] **Reconcile the two on-time/late classifiers.** Done, on
+      `infra/three-vm-v1` — added `pk.model.classify(scheduled_minutes,
+      taken_minutes)`, the one rule `adherence_report` already used, and
+      `tracker.services.classify_dose` wraps it for `POST /api/doses/` to
+      set a dose's status with, instead of the hardcoded `ON_TIME` it used
+      before. The exact repro case (08:00 schedule, 09:55 taken) is now a
+      test: `DoseLoggingTests.test_doses_and_adherence_agree_on_the_same_dose`
+      in [tracker/tests.py](backend/tracker/tests.py).
+- [~] **Do not present modelled output as measurement.** Partly done — the
+      Curve page, the Today timeline and the Medications release shape each
+      carry a line saying the curve and its milestones are a modelled
+      average response rather than a measurement, alongside the nav's
+      standing disclaimer. Still to check: the History page's wording, and
+      anywhere the report ends up quoting a milestone time.
+- [ ] **Verify timezone handling end to end.** `scripts/common.sh` sets the
       VMs to `Pacific/Auckland` precisely because a UTC default silently
-      shifts every timeline by 12-13 hours — confirm Django's `TIME_ZONE`,
-      `USE_TZ`, and the frontend's local-time formatting all agree.
+      shifts every timeline by 12-13 hours. Django's half is confirmed —
+      [settings.py:198-202](backend/config/settings.py#L198-L202) has
+      `TIME_ZONE = 'Pacific/Auckland'` with `USE_TZ = True`. Still to check:
+      the frontend's local-time formatting and pk's day boundaries agree with
+      it once a VM is actually running.
 
 ## 4. Infrastructure
 
-- [ ] **Write `provisions/web.sh`.** Currently just `#!/bin/bash` / `set -e`
-      — it does nothing. Needs: venv + `pip install -r web/requirements.txt`,
-      `manage.py migrate`, `collectstatic`, a gunicorn systemd unit, and the
-      Vue build (or `npm run dev --host`). Model it on
-      [provisions/pk.sh](provisions/pk.sh), which is the one node that is
-      fully provisioned (idempotent, systemd unit, post-provision health check).
-- [ ] **Fix the missing DB schema file.**
-      [provisions/db.sh:8](provisions/db.sh#L8) runs
-      `psql adhd -f /vagrant/db/schema.sql`, but there is no `db/` directory in
-      the repo — `vagrant up` fails on the db VM. Either add `db/schema.sql` or
-      drop that line and let Django migrations own the schema (preferred, since
-      the models already define it).
-- [ ] **Forward the app ports.** [Vagrantfile](Vagrantfile) only forwards SSH
-      (2200-2202). Nothing exposes Django (8000) or Vite (5173) to the host, so
-      the app can't be opened from a browser.
-- [ ] **Remove the dead config block.** The whole first
-      `Vagrant.configure("2")` block at the top of the Vagrantfile is commented
-      out and superseded by the `servers=[...]` version below it.
-- [ ] **Write the root README.** [README.md](README.md) is empty (0 bytes). It
-      needs the architecture (web/pk/db VMs), setup and `vagrant up`
-      instructions, and how to run each test suite — this is what a marker
-      reads first.
-- [ ] **Add `.ua/` to `.gitignore`** (or delete it) — it is scratch output from
-      the codebase-analysis tooling and currently shows as untracked.
-- [ ] **Verify a clean `vagrant destroy && vagrant up`** brings all three VMs up
-      green, end to end, on a fresh checkout.
-- [ ] **Write the report.** Step 11 of [web/steps.md](web/steps.md).
+The items below through "Remove the dead config block" describe the
+original `db`/`pk`/`web` layout and are left as the historical record of
+that work. `infra/three-vm-v1` restructured that into `db`/`backend`/
+`frontend` — see [docs/v1-three-vm-plan.md](docs/v1-three-vm-plan.md) for
+why and how, and the root [README.md](README.md) for the layout as it
+stands now. The remaining items in this section are updated in place.
+
+- [x] **Write `scripts/frontend.sh`.** Done — gunicorn running the Django API
+      behind nginx, with nginx also serving the built Vue SPA so both answer
+      on one origin (`:8000`). The script installs Node 22 from NodeSource
+      (vite 8 needs >= 20.19), builds the venv, waits for postgres on the db
+      VM, runs `migrate` and `collectstatic`, builds the frontend, installs
+      both units, and health-checks `/auth/csrf/` and `/` before exiting.
+      Config lived in `web/deploy/` (now split across
+      [backend/deploy/](backend/deploy/) and
+      [frontend/deploy/](frontend/deploy/) — see the infra-section note
+      above); every step is rerunnable.
+- [x] **Decide the web VM's Python.** Done — web moves to
+      `bento/ubuntu-24.04` (Python 3.12) for Django 6.1. db and pk stay on
+      18.04: pk pins Django 3.2 precisely because that box ships Python 3.6,
+      and moving it would mean upgrading pk's Django for no benefit.
+- [x] **Check `apt-get update` still works on bionic.** Checked on the
+      running db VM — bionic is still served from `archive.ubuntu.com` and
+      all four suites resolve, so the EOL worry was unfounded and
+      `scripts/common.sh` needs no mirror rewrite. Worth rechecking if a
+      provision ever fails at the apt step.
+- [x] **Fix the missing DB schema file.** Done — the `schema.sql` line is
+      gone from [scripts/db.sh](scripts/db.sh) and Django migrations own
+      the schema. The script now also creates the role/database/pg_hba rule
+      only if absent (so `vagrant provision` is rerunnable rather than a
+      second-run failure), opens `listen_addresses`, and ends with a real
+      health check that connects over `192.168.56.10` as `adhd` before
+      exiting green.
+- [x] **Forward the app ports.** Done — guest 8000 to host 8000 on web (the
+      browser entry point), and guest 8001 to host 8001 on pk for debugging.
+      The web mapping has to keep host port 8000 specifically, because
+      [api.js:6](frontend/src/api.js#L6) hardcodes
+      `http://localhost:8000`; `auto_correct` is on, so watch for a
+      correction warning if something else on the host holds that port.
+      Note none of this affects reaching db or pk from the host — the
+      `192.168.56.0/24` private network is a VirtualBox host-only adapter, so
+      the host sits on it as `192.168.56.1` and can hit postgres and pk
+      directly with no forwarding. That is what makes the interim setup
+      below work.
+- [x] **Remove the dead config block.** Done — it was also actively
+      misleading, since it had db and web on each other's addresses.
+- [x] **Write the root README.** Done, on `infra/three-vm-v1` —
+      [README.md](README.md) now has the three-VM architecture diagram,
+      prerequisites, `vagrant up` instructions and what to expect, the
+      seeded demo accounts table, how to run every test suite, both ways to
+      run it, troubleshooting, and the security note about the checked-in
+      secrets.
+- [x] **Add `.ua/` to `.gitignore`** (or delete it). Done — the directory is
+      gone from the working tree and `git status` is clean.
+- [~] **Verify a clean `vagrant destroy && vagrant up`.** Still partly
+      done, now against the new layout: `infra/three-vm-v1`'s restructure,
+      the `pk` fold-in, the seed command, the new `scripts/backend.sh` /
+      `scripts/frontend.sh`, and the Vagrantfile were all verified the
+      ways that don't need a VM — `DB_ENGINE=sqlite manage.py test`,
+      `manage.py check` with `DJANGO_DEBUG=False`, `npm run build`, and
+      `bash -n` on every provisioning script. A genuine `vagrant destroy -f
+      && vagrant up` on the new three-node Vagrantfile has not been run —
+      VirtualBox's host-only networking needs an interactive admin-elevated
+      setup on first use, which wasn't available in the session that did
+      this work. That run is the one thing left to confirm before calling
+      this done.
+- [x] **Document both ways to run it** (in the README). Done — see the
+      README's "Getting started" (the three VMs) and "Running it without
+      the VMs" (host-side `runserver` + `npm run dev`, both pointed at the
+      `db`/`backend` VMs over the host-only network) sections.
+- [x] **Delete the stray `ig` file.** Done.
+- [x] **Stop tracking `backend/db.sqlite3`.** Done — the file moved
+      (untracked) to `backend/db.sqlite3` along with the rest of the
+      restructure, and `.gitignore` covers the new path.
+- [ ] **Write the report.** Step 11 of [docs/notes/steps.md](docs/notes/steps.md).

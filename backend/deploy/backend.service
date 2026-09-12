@@ -1,0 +1,23 @@
+[Unit]
+Description=backend service -- Django API (ADHD medication manager)
+# The API is useless without the database, but db is a different VM that
+# systemd cannot order against, so scripts/backend.sh waits for postgres
+# before it starts this unit.
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/vagrant/backend
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+EnvironmentFile=/etc/backend.env
+# Bound to every interface, not loopback: nginx on the frontend VM reaches
+# this one over the host-only network (192.168.56.11:8000), and there is no
+# local reverse proxy on this VM to bind to instead. The only things that
+# can reach this port are the frontend VM, the host (via the debug port
+# forward), and this VM itself -- the host-only network has no other member.
+ExecStart=/opt/backend/venv/bin/gunicorn config.wsgi --bind 0.0.0.0:8000 --workers 3
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

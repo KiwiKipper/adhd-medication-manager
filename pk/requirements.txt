@@ -1,5 +1,0 @@
-# Exact versions, so provisioning is reproducible and download volume is
-# estimable for the report. Django 3.2 LTS is the newest branch that still
-# supports Python 3.6, which is what bento/ubuntu-18.04 ships.
-Django==3.2.25
-gunicorn==20.1.0
