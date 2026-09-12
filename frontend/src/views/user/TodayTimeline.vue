@@ -5,7 +5,8 @@
 // filing a note against an earlier day, live on the Notes page.
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { fetchNotes, addNote as addNoteApi, logDose, fetchTimeline } from '@/api.js'
-import { buildTimelineSteps, timelineSpanMinutes, elapsedMinutes, formatClockTime, formatLongDate } from '@/lib/timeline.js'
+import { buildTimelineSteps, timelineSpanMinutes, timelineCanvasHeight, elapsedMinutes,
+         formatClockTime, formatLongDate, PX_PER_MIN } from '@/lib/timeline.js'
 import { statusLabel } from '@/lib/doseHistory.js'
 
 const props = defineProps({
@@ -56,7 +57,10 @@ async function loadTimeline() {
     const data = await fetchTimeline(props.dose.taken_at)
     timelineEvents.value = data.events
   } catch (err) {
-    timelineError.value = "Couldn't load the release timeline."
+    // The view returns a useful reason for its 400s ("No dose logged for
+    // today yet.", "No active medication selected.") -- show that rather than
+    // a generic failure the user can't act on.
+    timelineError.value = err.response?.data?.error ?? "Couldn't load the release timeline."
   } finally {
     timelineLoading.value = false
   }
@@ -67,15 +71,9 @@ watch(() => props.dose.taken_at, loadTimeline)
 const timeline = computed(() => buildTimelineSteps(props.dose.taken_at, now.value, timelineEvents.value))
 const timelineSpanMin = computed(() => timelineSpanMinutes(timelineEvents.value))
 
-// The timeline is a linear time axis: every row sits at its true distance
-// from the dose, scaled by this many pixels per minute, and the NOW marker
-// creeps down at the same rate. Change this one number to rescale the whole
-// thing (the axis ends up timelineSpanMin * PX_PER_MIN tall).
-//
-// At 0.5 a ~12h span is about 365px. Don't raise it much further without
-// checking the tightest gap between two of pk's events, and each row needs
-// ~32px for its two lines of text.
-const PX_PER_MIN = 0.5
+// The canvas is usually spanMin tall at the axis scale, but rows pushed
+// apart to stay legible can reach past that -- see timeline.js.
+const canvasHeightPx = computed(() => timelineCanvasHeight(timeline.value, timelineSpanMin.value))
 
 // How far down the axis "now" is, in px.
 const nowPx = computed(() => elapsedMinutes(props.dose.taken_at, now.value, timelineSpanMin.value) * PX_PER_MIN)
@@ -154,16 +152,14 @@ function resetLog() {
         </div>
 
         <!-- The milestones ("Taken", "First peak", ...) on a linear time
-             axis: the canvas is one pixel tall per minute of the dose, and
-             every row is absolutely positioned at its own offset, so the
-             gaps between rows match the real gaps in time. The NOW marker
-             is placed the same way and creeps down a pixel a minute.
-             `v-for` repeats the row block once per step; `:key` gives Vue a
-             stable id per row so it can track items efficiently. -->
+             axis: every dot sits at its real distance from the dose, and the
+             NOW marker creeps down at the same scale. Labels that would
+             collide are spread apart (timeline.js), which is why a row's dot
+             and its text aren't always level. -->
         <div class="timeline-col">
           <p v-if="timelineLoading" class="timeline-status">Loading timeline…</p>
           <p v-else-if="timelineError" class="timeline-status">{{ timelineError }}</p>
-          <div v-else class="timeline-canvas" :style="{ height: timelineSpanMin * PX_PER_MIN + 'px' }">
+          <div v-else class="timeline-canvas" :style="{ height: canvasHeightPx + 'px' }">
             <!-- One continuous rail behind the dots, with the elapsed part
                  of it filled in on top, down to the NOW position. -->
             <span class="rail-track"></span>
@@ -171,12 +167,18 @@ function resetLog() {
 
             <div
               v-for="step in timeline"
-              :key="step.label"
+              :key="step.label + step.offsetMin"
               class="timeline-item"
               :class="step.state"
-              :style="{ top: step.offsetMin * PX_PER_MIN + 'px' }"
+              :style="{ top: step.topPx + 'px' }"
             >
-              <span class="timeline-marker"><span class="timeline-dot"></span></span>
+              <!-- The dot is pulled back up to the step's true minute where
+                   its label had to be nudged down to clear the row above; the
+                   connector spans the difference. -->
+              <span
+                class="timeline-marker"
+                :style="{ marginTop: step.dotOffsetPx + 'px', '--connector-h': -step.dotOffsetPx + 'px' }"
+              ><span class="timeline-dot"></span></span>
               <div class="timeline-body">
                 <div class="timeline-time">{{ step.time }}</div>
                 <div class="timeline-label">{{ step.label }}</div>
@@ -455,6 +457,19 @@ function resetLog() {
   border: 1.5px solid var(--border);
   width: 7px;
   height: 7px;
+}
+
+/* Joins a dot to its label where the label was nudged down to stay clear of
+   the row above. --connector-h is 0 for a row that didn't need moving, which
+   makes this invisible without needing a second class. */
+.timeline-marker::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: var(--connector-h, 0);
+  background: var(--border);
 }
 
 /* Lifts the time text so it reads as level with the dot beside it. */

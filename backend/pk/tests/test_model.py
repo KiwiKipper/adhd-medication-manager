@@ -87,6 +87,22 @@ class TwoComponentShapeTests(unittest.TestCase):
         labels = [event.label for event in events]
         self.assertNotIn(model.LABEL_SECOND_RELEASE, labels)
 
+    def test_a_long_acting_curve_can_omit_worn_off(self):
+        """Vyvanse's seeded shape (ka 0.4, half-life 6h) is still above the
+        worn-off threshold when the 24h window ends, so it yields four events
+        rather than the usual five. Callers must not assume a fixed list."""
+        components = model.validate_components([
+            {"fraction": 1.0, "delay_h": 0.0, "ka": 0.4, "half_life_h": 6.0},
+        ])
+        samples = model.sample_curve(components, sample_minutes=5, window_hours=24)
+        labels = [event.label for event in model.derive_events(samples)]
+
+        self.assertEqual(labels[0], model.LABEL_TAKEN)
+        self.assertIn(model.LABEL_ONSET, labels)
+        self.assertIn(model.LABEL_FIRST_PEAK, labels)
+        self.assertIn(model.LABEL_FADE, labels)
+        self.assertNotIn(model.LABEL_WORN, labels)
+
     def test_two_component_curve_emits_events_in_order(self):
         components = model.validate_components([
             {"fraction": 0.22, "delay_h": 0.0, "ka": 1.00, "ke": 0.277},
