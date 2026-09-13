@@ -14,3 +14,9 @@ backend/staticfiles/
 # depends on this file, and a committed dev db ships whoever's local rows
 # and conflicts on every merge.
 backend/db.sqlite3
+
+requirements.md
+
+# Assignment spec, report drafts and PDF -- submitted through Aoroa, not
+# part of the project a developer clones.
+assingment/
