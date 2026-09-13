@@ -1,73 +1,57 @@
 # Dose
 
-A personal ADHD medication log: pick a medication and a daily schedule, log
-when you actually took it, and see the dose's modelled release curve next
-to your real adherence history. Built as three VMs -- a Vue single-page app,
-a Django API, and PostgreSQL -- brought up with one `vagrant up` and seeded
-with two demo accounts so there is something real to look at immediately.
+A personal ADHD medication log. You pick a medication and a daily schedule,
+log when you actually took each dose, and see the dose's modelled release
+curve next to your adherence history.
 
-**Not medical advice.** The release curve is a generic pharmacokinetic
-model (a Bateman one-compartment curve), not a measurement of you, and the
-medication catalogue's descriptive copy and curve parameters are
-illustrative placeholders, not yet sourced from Medsafe or the NZ
-Formulary -- see [Data correctness](#data-correctness-not-yet-done) below.
-Every page that shows a curve says so.
+The app runs on three VMs (a Vue frontend, a Django API, and PostgreSQL).
+One `vagrant up` builds all three and seeds two demo accounts.
 
-## Architecture
+> **Not medical advice.** The release curve comes from a generic
+> pharmacokinetic model (a Bateman one-compartment curve), not from
+> measurements of you. The medication descriptions and curve parameters are
+> placeholders and have not yet been checked against Medsafe or the NZ
+> Formulary. Every page that shows a curve says so. See
+> [Known gaps](#known-gaps).
 
-```
- host browser ──► http://localhost:8000
-                        │  (VirtualBox port forward 8000 → 80)
-                        ▼
-   ┌────────────────────────────────┐
-   │ frontend   192.168.56.12       │  nginx: serves the built Vue SPA,
-   │                                 │  proxies /api/ /auth/ /admin/ /static/
-   └───────────────┬─────────────────┘
-                    │ host-only network
-   ┌────────────────▼─────────────────┐
-   │ backend    192.168.56.11         │  gunicorn running Django 6.1:
-   │                                   │  tracker/ users/ pk/
-   └────────────────┬──────────────────┘
-                    │ psycopg
-   ┌────────────────▼──────────────────┐
-   │ db         192.168.56.10          │  PostgreSQL 16, database `adhd`
-   └────────────────────────────────────┘
-```
+## Contents
 
-Three VMs, one per tier, all `bento/ubuntu-24.04`:
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Running without the VMs](#running-without-the-vms)
+- [Tests](#tests)
+- [Verifying a deployment](#verifying-a-deployment)
+- [Resetting and removing](#resetting-and-removing)
+- [Troubleshooting](#troubleshooting)
+- [Security note](#security-note)
+- [Known gaps](#known-gaps)
 
-- **frontend** -- nginx serves the Vue single-page app (`frontend/`) and
-  proxies every API path to the backend VM, so the browser only ever talks
-  to one origin. The frontend has no logic of its own beyond presentation;
-  it calls the API for everything.
-- **backend** -- a Django REST API (`backend/`) under gunicorn: user
-  accounts (`users/`), the medication catalogue, dose log and notes
-  (`tracker/`), and the release-curve/adherence maths (`backend/pk/`, a
-  plain Python package with no Django import of its own, called in-process
-  -- not a separate service). Owns the schema on the db VM.
-- **db** -- PostgreSQL. Django's migrations own the schema entirely;
-  `scripts/db.sh` only creates the role, the database, and opens it to
-  the private network.
+## Quick start
 
-The host sits on the host-only network as `192.168.56.1`, so `db` and
-`backend` are reachable directly from the host with no port forwarding --
-see [Running it without the VMs](#running-it-without-the-vms) below.
+### Requirements
 
-## Prerequisites
+Developed and tested on:
 
-- [Vagrant](https://www.vagrantup.com/) and
-  [VirtualBox](https://www.virtualbox.org/).
-- About 4 GB of RAM free for the three VMs (1024 + 1024 + 2048 MB) and
-  roughly 2 GB of disk for the Ubuntu box image (downloaded once, shared by
-  all three nodes).
-- Host port 8000 free. If it's busy, Vagrant shifts the forward to another
-  port automatically (see [Troubleshooting](#troubleshooting)) and the app
-  still works there.
-- An internet connection during the first `vagrant up`: the box image,
-  `apt` packages, Node from NodeSource, and `npm`/`pip` dependencies are all
-  fetched then. Later runs of `vagrant provision` reuse what's cached.
+| | Version |
+|---|---|
+| Host OS | Windows 11 (x86_64) |
+| Vagrant | 2.4.9 |
+| VirtualBox | 7.2.16 |
+| Git | 2.55 (Git Bash runs `scripts/smoke.sh` on Windows) |
 
-## Getting started
+macOS and Linux on x86_64 should also work, but haven't been tested. ARM
+hosts such as Apple Silicon are not supported.
+
+You also need:
+
+- About 4 GB of free RAM (the VMs get 1024, 1024 and 2048 MB) and about
+  2 GB of disk for the Ubuntu base box.
+- Port 8000 free on the host. If something else holds it, Vagrant picks
+  another port (see [Troubleshooting](#troubleshooting)).
+- An internet connection for the first `vagrant up`.
+- For `scripts/smoke.sh` only: bash, `curl` and Python 3 on the host.
+
+### Start it
 
 ```
 git clone <this repo>
@@ -75,75 +59,110 @@ cd adhd-medication-manager
 vagrant up
 ```
 
-First run takes roughly 15-20 minutes, almost all of it the Ubuntu box
-download and `npm ci` + a production Vite build on the frontend VM. Each
-node prints its own provisioning log; `backend` and `frontend` both end
-with an explicit health check (a real HTTP request through the full stack,
-not just "the process started") and fail loudly rather than leaving a green
-`vagrant up` behind a broken site.
+The first run takes 15 to 20 minutes. Most of that is downloading the
+Ubuntu box and building the frontend. The `backend` and `frontend`
+provisioners each finish with a real HTTP request through the stack, so if
+something is broken, `vagrant up` fails instead of reporting success.
 
-Open **http://localhost:8000** and sign in with one of the seeded accounts:
+Open **http://localhost:8000** and sign in:
 
-| Username | Password | Medication | Scheduled | Role |
+| Username | Password | Medication | Scheduled | Notes |
 |---|---|---|---|---|
-| `admin` | `password` | Vyvanse 30mg | 08:00 | Superuser, so this one also gets you into `/admin/`. |
-| `dev1` | `firstpassword` | Dexamfetamine 5mg | 07:30 | Ordinary account. |
+| `admin` | `password` | Vyvanse 30mg | 08:00 | Superuser, can also use `/admin/` |
+| `dev1` | `firstpassword` | Dexamfetamine 5mg | 07:30 | Ordinary account |
 
-Both have ten days of history including a dose logged today, so Today, Day
-curve, History and Notes all have real content from the first load. The ten
-days are a mix of on-time and late doses with one missed day each, which is
-what gives the adherence percentage and the streak something to report.
+Each account has ten days of history: a mix of on-time and late doses, one
+missed day, and a dose logged today. Every page has data to show from the
+first load.
 
-This data comes from `backend/tracker/management/commands/seed_demo.py`,
-run automatically by `scripts/backend.sh` on every provision. It's
-idempotent -- an existing demo account is left alone, so a routine
-`vagrant provision backend` never wipes anything logged against a demo
-account by hand. To wipe and regenerate both accounts instead:
+## Architecture
 
 ```
-SEED_RESET=1 vagrant provision backend
+ host browser ──► http://localhost:8000
+                        │  (VirtualBox port forward 8000 → 80)
+                        ▼
+   ┌─────────────────────────────────┐
+   │ frontend   192.168.56.12        │  nginx: serves the built Vue SPA,
+   │                                 │  proxies /api/ /auth/ /admin/ /static/
+   └───────────────┬─────────────────┘
+                    │ host-only network
+   ┌────────────────▼──────────────────┐
+   │ backend    192.168.56.11          │  gunicorn running Django 6.1:
+   │                                   │  tracker/ users/ pk/
+   └────────────────┬──────────────────┘
+                    │ psycopg
+   ┌────────────────▼───────────────────┐
+   │ db         192.168.56.10           │  PostgreSQL 16, database `adhd`
+   └────────────────────────────────────┘
 ```
 
-(never touches any other account).
+All three VMs use `bento/ubuntu-24.04`.
 
-`vagrant halt` then `vagrant up` again keeps everything in postgres --
-provisioning doesn't rerun on a plain boot. `vagrant destroy -f && vagrant
-up` is a full reset back to the seeded starting state.
+- **frontend** (`frontend/`): nginx serves the built Vue app and proxies
+  API paths to the backend, so the browser only talks to one origin. The
+  frontend only handles presentation and gets all data from the API.
+- **backend** (`backend/`): a Django REST API under gunicorn. `users/`
+  handles accounts, `tracker/` holds the medication catalogue, dose log and
+  notes, and `pk/` does the release-curve and adherence maths. `pk` is a
+  plain Python package with no Django imports, called in-process.
+- **db**: PostgreSQL. Django migrations own the schema. `scripts/db.sh`
+  only creates the role and database and opens it to the private network.
 
-## Running the tests
+The host is `192.168.56.1` on the host-only network, so it can reach `db`
+and `backend` directly without port forwarding.
+
+### Tools
+
+| Tool | Runs on | Used for |
+|---|---|---|
+| VirtualBox | host | Runs the VMs and the `192.168.56.0/24` host-only network |
+| Vagrant | host | Defines the VMs in the [Vagrantfile](Vagrantfile); builds, provisions and destroys them |
+| Shell scripts ([scripts/](scripts/)) | all VMs | `common.sh` runs everywhere, then `db.sh`, `backend.sh` or `frontend.sh`. All are safe to rerun |
+| PostgreSQL 16 | db | Users, medication catalogue, doses and notes |
+| Django + Django REST Framework | backend | API, auth, ORM and migrations; dependencies pinned in [requirements.txt](backend/requirements.txt) |
+| gunicorn (systemd) | backend | Serves Django on `:8000` |
+| WhiteNoise | backend | Serves the Django admin's static files |
+| Node 22 + npm + Vite | frontend | `npm ci` installs from [package-lock.json](frontend/package-lock.json); Vite builds the app |
+| nginx | frontend | Serves the built app and proxies to the backend |
+
+## Running without the VMs
+
+This is faster when you're changing code, because Django and Vite run
+directly on your machine. Django still needs a database, so pick one of the
+two options below.
+
+Set up a virtualenv first:
 
 ```
 cd backend
-DB_ENGINE=sqlite python manage.py test
-```
-
-No VM, no postgres, and no running backend required -- `DB_ENGINE=sqlite`
-switches to a throwaway local database for the run. This covers the
-`tracker` and `users` apps, the `pk` release-curve/adherence module
-(`backend/pk/tests/`, which also runs completely standalone with no Django
-install: `cd backend && python -m unittest discover -s pk/tests -t .`), and the seed
-command (`backend/tracker/tests_seed.py`).
-
-After `vagrant up`, the end-to-end check is the provisioning health checks
-themselves: `backend` and `frontend` each make a real HTTP request through
-the full stack before reporting success, so a green `vagrant up` already
-means nginx, the proxy, gunicorn, Django, `pk` and postgres all work
-together.
-
-## Running it without the VMs
-
-Faster to iterate on while changing code. `db` and `backend` are reachable
-directly on the host-only network once `vagrant up` has run at least once
-(or point at your own local postgres/sqlite instead):
-
-```
-cd backend
-python -m venv venv && venv/Scripts/activate   # or source venv/bin/activate
+python -m venv venv
+source venv/Scripts/activate   # Git Bash on Windows; source venv/bin/activate on macOS/Linux
 pip install -r requirements.txt
+```
+
+**Option 1: Postgres on the `db` VM.** The VM must be running. If it's
+halted or aborted, every command fails with `connection timeout expired`.
+Check with `vagrant status`.
+
+```
+vagrant up db
 DB_HOST=192.168.56.10 DB_PASSWORD=password python manage.py migrate
 DB_HOST=192.168.56.10 DB_PASSWORD=password python manage.py seed_demo
 DB_HOST=192.168.56.10 DB_PASSWORD=password python manage.py runserver
 ```
+
+If `db` was just created, the first command can time out. Wait a few
+seconds and run it again.
+
+**Option 2: SQLite, no VMs.** Data goes in `backend/db.sqlite3`.
+
+```
+DB_ENGINE=sqlite python manage.py migrate
+DB_ENGINE=sqlite python manage.py seed_demo
+DB_ENGINE=sqlite python manage.py runserver
+```
+
+Then start the frontend in another terminal:
 
 ```
 cd frontend
@@ -151,57 +170,121 @@ npm install
 npm run dev
 ```
 
-`npm run dev`'s dev server proxies `/api`, `/auth`, `/admin` and `/static`
-to `http://127.0.0.1:8000` by default (see `vite.config.js`); point it at
-the provisioned backend VM instead with
-`VITE_DEV_API=http://192.168.56.11:8000 npm run dev`.
+The Vite dev server proxies `/api`, `/auth`, `/admin` and `/static` to
+`http://127.0.0.1:8000` (see `vite.config.js`). To use the backend VM
+instead, run `VITE_DEV_API=http://192.168.56.11:8000 npm run dev`.
+
+## Tests
+
+```
+cd backend
+DB_ENGINE=sqlite python manage.py test
+```
+
+This needs no VMs or Postgres. It covers the `tracker` and `users` apps,
+the `pk` module, and the seed command (`backend/tracker/tests_seed.py`).
+
+The `pk` tests also run without Django installed:
+
+```
+cd backend
+python -m unittest discover -s pk/tests -t .
+```
+
+## Verifying a deployment
+
+With the VMs up, run this from the repository root (Git Bash on Windows):
+
+```
+bash scripts/smoke.sh
+```
+
+It checks that all three VMs are running, then logs in as `admin` through
+nginx and reads the medication selection, dose history, notes, curve and
+adherence report. It doesn't change any data. On success it prints
+`smoke: all checks passed` and exits 0. Otherwise it lists each failed
+check and exits 1.
+
+If Vagrant moved the host port, pass the new one:
+
+```
+BASE=http://localhost:2203 bash scripts/smoke.sh
+```
+
+## Resetting and removing
+
+The seed command (`backend/tracker/management/commands/seed_demo.py`) runs
+on every backend provision. It leaves existing demo accounts alone, so
+`vagrant provision backend` won't wipe doses you logged by hand. To wipe
+and regenerate the two demo accounts (no other accounts are touched):
+
+```
+SEED_RESET=1 vagrant provision backend
+```
+
+`vagrant halt` followed by `vagrant up` keeps all data, because
+provisioning doesn't rerun on a normal boot.
+
+To delete the VMs and everything in them, including the database:
+
+```
+vagrant destroy -f
+```
+
+Run `vagrant up` afterwards to rebuild from the seeded starting state.
+Vagrant keeps the downloaded base box so rebuilds are faster. To remove it:
+
+```
+vagrant box remove bento/ubuntu-24.04
+```
+
+The host-only network adapter stays, since other VirtualBox VMs may use it.
+You can remove it in VirtualBox's Network Manager.
 
 ## Troubleshooting
 
-- **"fixed port collision" / a different port than 8000 opens.** Vagrant's
-  `auto_correct` shifted the forward because something else on the host
-  already held 8000; watch the `vagrant up` output for the correction
-  warning and use whatever port it actually picked. The app works on any
-  port -- the frontend calls the API at its own origin rather than a
-  hardcoded host:port.
-- **The frontend VM runs out of memory mid-provision.** `npm ci` plus a
-  production Vite build is the single biggest memory user in the whole
-  project; it's why that node gets 2048 MB while the other two get 1024.
-  If it still happens on a constrained host, build on the host instead and
-  rsync `frontend/dist/` onto the VM by hand.
-- **A provision fails partway through apt/npm/pip.** Every provisioning
-  script is safe to rerun: `vagrant provision <backend|frontend|db>` picks
-  up from wherever it left off rather than redoing completed work.
-- **A script fails with `$'\r': command not found`.** A line-ending issue on
-  a fresh Windows checkout -- `.gitattributes` forces `*.sh` and `*/deploy/**`
-  to LF, but a very old clone or an aggressive local git config can still
-  get this wrong. Re-clone, or `git config core.autocrlf false` and re-checkout.
-- **`vagrant up` can't create the host-only network.** VirtualBox's
-  host-only networking needs an admin-elevated one-time setup on some
-  hosts (particularly Windows); accept the elevation prompt if one appears
-  on the first `vagrant up`.
+**The app opens on a port other than 8000.** Another program was using
+8000, so Vagrant picked a different port. The `vagrant up` output shows
+which one. The app works on any port.
+
+**`connection timeout expired` when running Django on the host.** The `db`
+VM isn't running. Run `vagrant up db`, or use SQLite (see
+[Running without the VMs](#running-without-the-vms)).
+
+**The frontend VM runs out of memory while provisioning.** The frontend
+build uses the most memory, which is why that VM gets 2048 MB. If it still
+fails, build on the host and copy `frontend/dist/` onto the VM.
+
+**Provisioning fails partway through apt, npm or pip.** Run
+`vagrant provision <db|backend|frontend>` again. The scripts pick up where
+they stopped.
+
+**A script fails with `$'\r': command not found`.** The script has Windows
+line endings. `.gitattributes` forces LF for `*.sh` and `*/deploy/**`, but
+an old clone or a local git setting can override it. Re-clone, or run
+`git config core.autocrlf false` and check the files out again.
+
+**`vagrant up` can't create the host-only network.** On some hosts
+(especially Windows), VirtualBox needs admin rights the first time. Accept
+the elevation prompt.
 
 ## Security note
 
-`backend/deploy/backend.env` has a Django secret key and a database
-password checked into version control. That is deliberate, not an
-oversight: these VMs are never exposed outside the host-only network and
-this is coursework, not a production deployment. A real deployment would
-generate both per host and keep them out of the repository.
+`backend/deploy/backend.env` contains a Django secret key and a database
+password, and both are committed on purpose. The VMs are only reachable on
+the host-only network, and this is coursework, not a production deployment.
+A real deployment would generate both per host and keep them out of the
+repository.
 
-## Data correctness (not yet done)
+## Known gaps
 
-This v1 gets the three-VM infrastructure, the in-process `pk` maths, and
-seeded demo data working end to end. It does **not** claim the medication
-data is real:
+The infrastructure, the `pk` maths and the demo data work end to end. The
+medication data is not real yet:
 
-- `Medication.pk_components` (the Bateman-curve parameters `pk` samples)
-  are illustrative placeholder shapes -- one component for an
-  immediate-release medication, two for extended-release -- not real
-  pharmacokinetics. See `backend/pk/README.md` and the comment on
+- `Medication.pk_components`, the curve parameters that `pk` uses, are
+  placeholder shapes: one component for immediate-release medications and
+  two for extended-release. See `backend/pk/README.md` and the comment on
   `Medication.pk_components` in `backend/tracker/models.py`.
-- Every medication's `source`/`source_url`/`retrieved` fields are blank.
-  The Medications page says so rather than showing a plausible-looking
-  citation that doesn't exist.
-
-Both are tracked as open work, not claimed as finished by this release.
+- Every medication's `source`, `source_url` and `retrieved` fields are
+  blank. The Medications page says so instead of showing a made-up
+  citation.
