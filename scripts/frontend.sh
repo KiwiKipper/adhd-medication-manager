@@ -14,7 +14,8 @@ APP_ROOT=${APP_ROOT:-/vagrant}
 FRONTEND_SRC=$APP_ROOT/frontend
 FRONTEND_BUILD=/opt/frontend
 DEPLOY=$APP_ROOT/frontend/deploy
-BACKEND_URL=http://192.168.56.11:8000
+BACKEND_ADDR=${BACKEND_ADDR:-192.168.56.11}
+BACKEND_URL=http://$BACKEND_ADDR:8000
 
 # vite 8 requires node >= 20.19, and 24.04 ships 18 -- so node comes from
 # NodeSource rather than the distro.
@@ -54,7 +55,7 @@ npm ci --no-audit --no-fund
 npm run build
 
 install -m 0644 "$DEPLOY/proxy_params_backend" /etc/nginx/proxy_params_backend
-install -m 0644 "$DEPLOY/frontend.nginx.conf" /etc/nginx/sites-available/frontend
+sed "s/__BACKEND_ADDR__/$BACKEND_ADDR/" "$DEPLOY/frontend.nginx.conf" > /etc/nginx/sites-available/frontend
 ln -sf /etc/nginx/sites-available/frontend /etc/nginx/sites-enabled/frontend
 # Ubuntu's stock site is a `default_server` on :80 and would otherwise sit
 # there serving the nginx welcome page next to ours.
