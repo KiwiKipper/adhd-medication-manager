@@ -10,9 +10,10 @@ set -e
 #
 # curl comes from scripts/common.sh, which runs just before this.
 
-FRONTEND_SRC=/vagrant/frontend
+APP_ROOT=${APP_ROOT:-/vagrant}
+FRONTEND_SRC=$APP_ROOT/frontend
 FRONTEND_BUILD=/opt/frontend
-DEPLOY=/vagrant/frontend/deploy
+DEPLOY=$APP_ROOT/frontend/deploy
 BACKEND_URL=http://192.168.56.11:8000
 
 # vite 8 requires node >= 20.19, and 24.04 ships 18 -- so node comes from
