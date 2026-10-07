@@ -14,8 +14,13 @@ set -e
 # python3 and curl come from scripts/common.sh, which runs just before this.
 
 VENV=/opt/backend/venv
-BACKEND=/vagrant/backend
-DEPLOY=/vagrant/backend/deploy
+# Where the repo lives. Vagrant mounts it at /vagrant; off Vagrant (EC2) the
+# caller clones it elsewhere and sets APP_ROOT, and may pass its own generated
+# ENV_FILE instead of the committed one.
+APP_ROOT=${APP_ROOT:-/vagrant}
+BACKEND=$APP_ROOT/backend
+DEPLOY=$APP_ROOT/backend/deploy
+ENV_FILE=${ENV_FILE:-$DEPLOY/backend.env}
 
 apt-get install -y python3-venv
 
@@ -30,7 +35,7 @@ fi
 # (EnvironmentFile) and the manage.py calls below so they can't disagree
 # about which database they point at. 0640 -- it holds the DB password and
 # the secret key.
-install -m 0640 "$DEPLOY/backend.env" /etc/backend.env
+install -m 0640 "$ENV_FILE" /etc/backend.env
 
 # Load the same file into this shell for the manage.py calls.
 #
@@ -83,7 +88,11 @@ else
     "$VENV/bin/python" manage.py seed_demo
 fi
 
-install -m 0644 "$DEPLOY/backend.service" /etc/systemd/system/backend.service
+# WorkingDirectory is rewritten to $BACKEND so the unit also works when the
+# repo isn't at /vagrant.
+sed "s|^WorkingDirectory=.*|WorkingDirectory=$BACKEND|" "$DEPLOY/backend.service" \
+    > /etc/systemd/system/backend.service
+chmod 0644 /etc/systemd/system/backend.service
 systemctl daemon-reload
 systemctl enable backend
 systemctl restart backend

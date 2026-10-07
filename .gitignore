@@ -20,3 +20,13 @@ requirements.md
 # Assignment spec, report drafts and PDF -- submitted through Aoroa, not
 # part of the project a developer clones.
 assingment/
+
+# Terraform: local state holds every generated secret (DB password, Django key)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+# SSH keys
+*.pem
