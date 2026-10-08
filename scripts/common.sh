@@ -15,12 +15,16 @@ timedatectl set-timezone Pacific/Auckland
 
 # Let the VMs reach each other by name. The block is delimited and rewritten
 # in place because appending unconditionally would stack up a copy per
-# provision; the sed is a no-op on a first run.
-sed -i '/# BEGIN vagrant nodes/,/# END vagrant nodes/d' /etc/hosts
-cat >> /etc/hosts <<'HOSTS'
+# provision; the sed is a no-op on a first run. Vagrant only: off Vagrant
+# (EC2) the 192.168.56.x addresses don't exist, so the names would point
+# nowhere.
+if [ "${APP_ROOT:-/vagrant}" = /vagrant ]; then
+    sed -i '/# BEGIN vagrant nodes/,/# END vagrant nodes/d' /etc/hosts
+    cat >> /etc/hosts <<'HOSTS'
 # BEGIN vagrant nodes
 192.168.56.10  db
 192.168.56.11  backend
 192.168.56.12  frontend
 # END vagrant nodes
 HOSTS
+fi
