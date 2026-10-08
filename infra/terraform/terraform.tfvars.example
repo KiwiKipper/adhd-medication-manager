@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+
+# Your public IP as /32: curl -s https://checkip.amazonaws.com
+my_ip = "203.0.113.7/32"
+
+# Receives SNS late-dose alerts. AWS emails a confirmation link to it.
+alert_email = "you@example.com"
+
+# Optional, defaults shown:
+# region   = "us-east-1"
+# project  = "dose"
+# key_name = "dose-key"
+# git_ref  = "cloud/aws-terraform"
