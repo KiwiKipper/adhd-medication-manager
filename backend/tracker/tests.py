@@ -17,6 +17,7 @@ No VMs and no postgres required.
 """
 
 import datetime
+import os
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -634,3 +635,65 @@ class NoteTests(ApiTestCase):
                 response = self.client.get("/api/notes/", {"date": value})
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("error", response.json())
+
+
+TOPIC = "arn:aws:sns:us-east-1:123456789012:dose-alerts"
+
+
+@patch.dict(os.environ, {"SNS_TOPIC_ARN": TOPIC})
+@patch("tracker.notify.boto3")
+class LateDoseAlertTests(ApiTestCase):
+    """POST /api/doses/ publishes to SNS for a late dose and nothing else.
+    boto3 is mocked, so no AWS is needed."""
+
+    def setUp(self):
+        super().setUp()
+        self.select()  # 08:00 schedule
+
+    def log_at(self, hour, minute):
+        taken_at = timezone.make_aware(
+            datetime.datetime.combine(timezone.localdate(), datetime.time(hour, minute))
+        )
+        return self.client.post(
+            "/api/doses/", {"taken_at": taken_at.isoformat()}, content_type="application/json",
+        )
+
+    def test_late_dose_publishes_once_to_the_topic(self, boto3):
+        response = self.log_at(9, 0)
+
+        self.assertEqual(response.status_code, 201)
+        publish = boto3.client.return_value.publish
+        publish.assert_called_once()
+        kwargs = publish.call_args.kwargs
+        self.assertEqual(kwargs["TopicArn"], TOPIC)
+        self.assertIn("ada", kwargs["Subject"])
+        self.assertIn("08:00", kwargs["Message"])
+        self.assertIn("09:00", kwargs["Message"])
+
+    def test_on_time_dose_does_not_publish(self, boto3):
+        response = self.log_at(8, 5)
+
+        self.assertEqual(response.status_code, 201)
+        boto3.client.return_value.publish.assert_not_called()
+
+    def test_failed_publish_still_saves_the_dose(self, boto3):
+        boto3.client.return_value.publish.side_effect = RuntimeError("SNS unreachable")
+
+        with self.assertLogs("tracker.notify", level="ERROR"):
+            response = self.log_at(9, 0)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(Dose.objects.filter(user=self.user, date=timezone.localdate()).exists())
+
+    def test_editing_todays_dose_does_not_publish_again(self, boto3):
+        self.log_at(9, 0)
+        self.log_at(9, 30)
+
+        boto3.client.return_value.publish.assert_called_once()
+
+    def test_no_topic_configured_means_no_publish(self, boto3):
+        with patch.dict(os.environ, {}, clear=False):
+            del os.environ["SNS_TOPIC_ARN"]
+            self.log_at(9, 0)
+
+        boto3.client.assert_not_called()
