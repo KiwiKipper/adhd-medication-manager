@@ -14,3 +14,7 @@
 # into the value, so DB_PASSWORD becomes "password" and postgres just
 # reports a wrong password.
 */deploy/** text eol=lf
+
+# Terraform user_data templates are rendered on the host and run as bash on
+# the instance. CRLF would break the shebang line the same way as above.
+*.tftpl text eol=lf

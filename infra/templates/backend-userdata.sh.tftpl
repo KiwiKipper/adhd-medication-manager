@@ -1,0 +1,33 @@
+#!/bin/bash
+# Rendered by Terraform (templatefile) and run once by cloud-init as root.
+# Output goes to /var/log/cloud-init-output.log.
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y git
+
+git clone --depth 1 -b ${git_ref} https://github.com/KiwiKipper/adhd-medication-manager.git /opt/dose
+
+# The env file Vagrant takes from the repo is generated here instead, so the
+# secret key and database password come from Terraform and never touch Git.
+# Quoted heredoc: bash must not expand anything in the values.
+mkdir -p /etc/dose
+cat > /etc/dose/backend.env <<'EOF'
+DJANGO_SECRET_KEY=${secret_key}
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${backend_private_ip},.compute-1.amazonaws.com
+DB_ENGINE=postgresql
+DB_HOST=${db_host}
+DB_PORT=5432
+DB_NAME=adhd
+DB_USER=adhd
+DB_PASSWORD=${db_password}
+AWS_DEFAULT_REGION=us-east-1
+SEED_DEMO=1
+EOF
+chmod 0600 /etc/dose/backend.env
+
+export APP_ROOT=/opt/dose ENV_FILE=/etc/dose/backend.env
+bash /opt/dose/scripts/common.sh
+bash /opt/dose/scripts/backend.sh
