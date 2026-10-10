@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Dose, Medication, Note, UserMedication
+from .notify import notify_if_late
 from .serializers import DoseSerializer, MedicationSerializer, NoteSerializer
 from .services import PkInputError, classify_dose, compute_adherence, compute_timeline
 
@@ -138,7 +139,11 @@ def doses_view(request) -> Response:
                 "status": classify_dose(scheduled_time, taken_at),
             },
         )
-        if not created:
+        if created:
+            # Only on create, so editing today's dose doesn't send a second
+            # alert.
+            notify_if_late(dose, scheduled_time)
+        else:
             dose.medication = medication
             dose.taken_at = taken_at
             dose.status = Dose.Status.EDITED
