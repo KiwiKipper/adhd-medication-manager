@@ -31,6 +31,7 @@ There are two ways to run it, from the same scripts:
 - [Resetting and removing](#resetting-and-removing)
 - [Troubleshooting](#troubleshooting)
 - [Security note](#security-note)
+- [From local VMs to AWS](#from-local-vms-to-aws)
 - [Known gaps](#known-gaps)
 
 ## Quick start
@@ -522,6 +523,29 @@ The AWS deployment does exactly that: Terraform generates both
 on the backend instance, and keeps them only in its local state file.
 `.gitignore` excludes `*.tfstate`, `*.tfvars` and `*.pem`, so neither the
 state, your IP and email, nor the SSH key can be committed.
+
+## From local VMs to AWS
+
+The first version of Dose ran only on Vagrant. That version is tagged
+[`v1.0.0`](https://github.com/KiwiKipper/adhd-medication-manager/releases/tag/v1.0.0).
+The AWS deployment reuses its application code and provisioning scripts.
+What changed, and why:
+
+| Local (v1.0.0) | AWS | Why |
+|---|---|---|
+| `db` VM running PostgreSQL, set up by `scripts/db.sh` | RDS PostgreSQL 16 | AWS handles patching, backups and storage. The app doesn't change, because Django already read `DB_HOST` and friends from the environment |
+| Scripts read the repo from `/vagrant` | `APP_ROOT` (default `/vagrant`), so EC2 clones to `/opt/dose` and runs the same scripts | One set of provisioning scripts for both targets. Vagrant behaves exactly as before |
+| nginx upstream hard-coded to `192.168.56.11` | `__BACKEND_ADDR__` placeholder, filled in by `frontend.sh` from `BACKEND_ADDR` | Terraform supplies the backend's private IP |
+| Backend systemd unit hard-coded `WorkingDirectory=/vagrant/backend` | `backend.sh` rewrites it to the real path when installing the unit | Without this, gunicorn can't import the app off Vagrant |
+| `/etc/hosts` entries for `db`, `backend`, `frontend` | Only written on Vagrant | The `192.168.56.x` addresses don't exist on AWS |
+| Committed `backend.env` with a fixed secret key and DB password | Generated per deploy by Terraform, written only to the instance | Real secrets stay out of Git |
+| Fixed host-only IPs, chosen in the Vagrantfile | Default VPC. The backend gets a fixed private IP (`.20` in its subnet); public DNS comes from AWS | A fixed backend IP lets the frontend be configured without Terraform depending on the backend instance |
+| Port forward `localhost:8000` → frontend | Frontend's public DNS on port 80; backend not reachable from the internet | Security groups replace the private host-only network |
+| No notifications | SNS late-dose email alerts | A managed service that does something a supporter can see |
+| `scripts/smoke.sh` (read-only, Vagrant) | Also `scripts/cloud-smoke.sh` (AWS checks plus a write and read-back through RDS) | Verifies the deployed cloud system end to end |
+
+The Vagrant path still works unchanged: `vagrant up` and `smoke.sh` pass
+on this version.
 
 ## Known gaps
 
