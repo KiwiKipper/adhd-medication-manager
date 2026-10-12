@@ -40,6 +40,7 @@ resource "aws_instance" "backend" {
     db_password        = random_password.db.result
     secret_key         = random_password.django_secret.result
     backend_private_ip = local.backend_private_ip
+    sns_topic_arn      = aws_sns_topic.alerts.arn
   })
 
   # user_data only runs on first boot, so a changed template must replace

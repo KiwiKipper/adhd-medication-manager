@@ -34,5 +34,5 @@ variable "alert_email" {
 variable "git_ref" {
   description = "Branch or tag the instances clone at first boot."
   type        = string
-  default     = "cloud/aws-terraform"
+  default     = "main"
 }
